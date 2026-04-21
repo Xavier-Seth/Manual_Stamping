@@ -1,0 +1,23 @@
+{
+  "resources/js/Pages/ManualStamping/Index.vue": {
+    "file": "assets/Index-Bv2K_J84.js",
+    "name": "Index",
+    "src": "resources/js/Pages/ManualStamping/Index.vue",
+    "isDynamicEntry": true,
+    "imports": [
+      "resources/js/app.js"
+    ]
+  },
+  "resources/js/app.js": {
+    "file": "assets/app-xi_FvDkc.js",
+    "name": "app",
+    "src": "resources/js/app.js",
+    "isEntry": true,
+    "dynamicImports": [
+      "resources/js/Pages/ManualStamping/Index.vue"
+    ],
+    "css": [
+      "assets/app-DaGhD78L.css"
+    ]
+  }
+}

@@ -7,18 +7,30 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-node_modules
+# Node / Vite
+node_modules/
+public/build/
 dist
 dist-ssr
+
+# Environment
+.env
 *.local
 
-# Editor directories and files
+# Editor
 .vscode/*
 !.vscode/extensions.json
 .idea
 .DS_Store
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
+
+# Tauri build artifacts
+desktop/runtime/
+desktop/src-tauri/target/
+desktop/src-tauri/binaries/
+
+# Laravel runtime (keep structure)
+storage/logs/*
+storage/framework/cache/*
+storage/framework/sessions/*
+storage/framework/views/*
+storage/framework/testing/*
