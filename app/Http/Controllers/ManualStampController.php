@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\StampPreset;
 use App\Services\ManualStamping\ManualStampService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
@@ -16,14 +17,47 @@ class ManualStampController extends Controller
 {
     public function index(): Response
     {
-        return Inertia::render('ManualStamping/Index');
+        return Inertia::render('ManualStamping/Index', [
+            'presets' => StampPreset::query()
+                ->where('is_active', true)
+                ->orderBy('name')
+                ->get(['id', 'name', 'description']),
+        ]);
     }
 
     public function upload(Request $request, ManualStampService $stampService)
     {
         $request->validate([
             'file' => ['required', 'file', 'mimes:pdf', 'max:20480'],
+            'preset_id' => ['nullable', 'integer', 'exists:stamp_presets,id'],
         ]);
+
+        // Build three independent preset payloads (one per output type)
+        $masterPreset = null;
+        $controlledPreset = null;
+        $uncontrolledPreset = null;
+
+        if ($request->filled('preset_id')) {
+            /** @var StampPreset $presetModel */
+            $presetModel = StampPreset::query()
+                ->where('is_active', true)
+                ->findOrFail((int) $request->input('preset_id'));
+
+            $masterPreset = [
+                'stamps' => $presetModel->master_stamps ?? [],
+                'esign' => $presetModel->esign,
+            ];
+
+            $controlledPreset = [
+                'stamps' => $presetModel->controlled_stamps ?? [],
+                'esign' => $presetModel->esign,
+            ];
+
+            $uncontrolledPreset = [
+                'stamps' => $presetModel->uncontrolled_stamps ?? [],
+                'esign' => $presetModel->esign,
+            ];
+        }
 
         $file = $request->file('file');
 
@@ -58,9 +92,9 @@ class ManualStampController extends Controller
         $zipPath = Storage::path($zipRelativePath);
 
         try {
-            $stampService->stampMasterCopy($inputPath, $masterPath);
-            $stampService->stampControlledCopy($inputPath, $controlledPath);
-            $stampService->stampUncontrolledCopy($inputPath, $uncontrolledPath);
+            $stampService->stampMasterCopy($inputPath, $masterPath, $masterPreset);
+            $stampService->stampControlledCopy($inputPath, $controlledPath, $controlledPreset);
+            $stampService->stampUncontrolledCopy($inputPath, $uncontrolledPath, $uncontrolledPreset);
 
             $this->createZipArchive($zipPath, [
                 $masterPath => 'master_copy.pdf',
@@ -69,7 +103,6 @@ class ManualStampController extends Controller
             ]);
         } catch (Throwable $exception) {
             Storage::deleteDirectory($workingDirectory);
-
             throw $exception;
         }
 
@@ -94,9 +127,8 @@ class ManualStampController extends Controller
         }
 
         foreach ($files as $filePath => $zipEntryName) {
-            if (! $zip->addFile($filePath, $zipEntryName)) {
+            if (!$zip->addFile($filePath, $zipEntryName)) {
                 $zip->close();
-
                 throw new RuntimeException("Unable to add {$zipEntryName} to output ZIP archive.");
             }
         }
