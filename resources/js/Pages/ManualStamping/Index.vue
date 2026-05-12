@@ -159,70 +159,84 @@ const handleUpload = async () => {
 <template>
   <Head title="QMS Manual Stamping" />
 
-  <div class="min-h-screen bg-stone-100 flex items-center justify-center">
-    <div class="w-full max-w-xl bg-white p-6 rounded-lg shadow">
+  <div class="min-h-screen bg-stone-100 flex items-center justify-center p-4">
+    <div class="w-full max-w-lg bg-white border border-stone-200 rounded-xl shadow-sm">
 
-      <h1 class="text-2xl font-bold mb-4">QMS Manual Stamping</h1>
-<div class="mt-4 flex justify-end">
-  <a
-    href="/manual-stamping/presets"
-    class="rounded-lg border border-stone-300 px-4 py-2 text-sm font-medium text-stone-700 transition hover:border-stone-400 hover:bg-stone-50"
-  >
-    Manage Presets
-  </a>
-</div>
-      <!-- 🔥 PRESET DROPDOWN -->
-      <div class="mb-4">
-        <label class="text-sm font-medium">Preset</label>
-        <select v-model="selectedPresetId" class="w-full border p-2 rounded">
-          <option value="">Default Layout</option>
-          <option
-            v-for="p in props.presets"
-            :key="p.id"
-            :value="String(p.id)"
-          >
-            {{ p.name }}
-          </option>
-        </select>
+      <!-- Card header -->
+      <div class="px-6 pt-6 pb-4 flex items-start justify-between">
+        <div>
+          <p class="text-[10px] font-bold uppercase tracking-[0.2em] text-emerald-600 mb-0.5">Manual Stamping</p>
+          <h1 class="text-xl font-bold text-stone-950">QMS Document Stamper</h1>
+        </div>
+        <a href="/manual-stamping/presets"
+          class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-stone-700 border border-stone-300 rounded-lg hover:bg-stone-50 transition-colors mt-1">
+          Manage Presets
+          <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
+        </a>
       </div>
 
-      <input
-        ref="fileInput"
-        type="file"
-        accept="application/pdf"
-        class="hidden"
-        @change="handleFileChange"
-      >
+      <div class="border-t border-stone-100" />
 
-      <div
-        class="border-dashed border-2 p-6 text-center cursor-pointer"
-        @click="openFilePicker"
-        @drop.prevent="handleDrop"
-        @dragover.prevent="handleDragOver"
-      >
-        Drag PDF here or click to upload
+      <!-- Body -->
+      <div class="px-6 py-5 space-y-5">
+
+        <!-- Preset selector -->
+        <div>
+          <label class="block text-xs font-medium text-stone-600 mb-1.5">Stamp Preset</label>
+          <select v-model="selectedPresetId"
+            class="w-full border border-stone-300 rounded-lg px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-shadow">
+            <option value="">Default Layout</option>
+            <option v-for="p in props.presets" :key="p.id" :value="String(p.id)">{{ p.name }}</option>
+          </select>
+        </div>
+
+        <input ref="fileInput" type="file" accept="application/pdf" class="hidden" @change="handleFileChange">
+
+        <!-- Drag zone -->
+        <div
+          class="border-2 border-dashed rounded-xl p-10 text-center cursor-pointer transition-colors"
+          :class="isDragging
+            ? 'border-emerald-500 bg-emerald-50'
+            : 'border-stone-300 hover:border-stone-400 hover:bg-stone-50'"
+          @click="openFilePicker"
+          @drop.prevent="handleDrop"
+          @dragover.prevent="handleDragOver"
+          @dragenter.prevent="handleDragEnter"
+          @dragleave="handleDragLeave">
+
+          <svg class="w-10 h-10 mx-auto mb-3 transition-colors" :class="isDragging ? 'text-emerald-400' : 'text-stone-300'"
+            fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+              d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+          </svg>
+
+          <template v-if="hasFile">
+            <p class="text-sm font-semibold text-stone-800 truncate max-w-xs mx-auto">{{ file.name }}</p>
+            <p class="text-xs text-stone-400 mt-1">{{ formatFileSize(file.size) }} · PDF</p>
+            <button class="mt-3 text-xs text-stone-400 hover:text-red-500 transition-colors" @click.stop="setSelectedFile(null)">
+              Remove file
+            </button>
+          </template>
+
+          <template v-else>
+            <p class="text-sm font-medium text-stone-600">Drop PDF here or click to browse</p>
+            <p class="text-xs text-stone-400 mt-1">PDF only · max 20 MB</p>
+          </template>
+        </div>
+
+        <!-- Messages -->
+        <p v-if="errorMessage" class="text-sm text-red-600">{{ errorMessage }}</p>
+        <p v-if="successMessage" class="text-sm text-emerald-600">{{ successMessage }}</p>
+
+        <!-- Generate button -->
+        <button
+          class="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-2.5 rounded-lg text-sm font-semibold transition-colors disabled:bg-stone-300 disabled:cursor-not-allowed"
+          :disabled="uploading"
+          @click="handleUpload">
+          {{ uploading ? 'Processing…' : 'Generate ZIP' }}
+        </button>
+
       </div>
-
-      <div v-if="file" class="mt-3 text-sm">
-        {{ file.name }} ({{ formatFileSize(file.size) }})
-      </div>
-
-      <button
-        @click="handleUpload"
-        :disabled="uploading"
-        class="mt-4 w-full bg-emerald-600 text-white py-2 rounded"
-      >
-        {{ uploading ? 'Processing...' : 'Generate ZIP' }}
-      </button>
-
-      <p v-if="errorMessage" class="text-red-500 mt-2">
-        {{ errorMessage }}
-      </p>
-
-      <p v-if="successMessage" class="text-green-600 mt-2">
-        {{ successMessage }}
-      </p>
-
     </div>
   </div>
 </template>
