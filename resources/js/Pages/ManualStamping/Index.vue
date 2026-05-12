@@ -13,16 +13,17 @@ const props = defineProps({
   },
 })
 
-const file = ref(null)
-const fileInput = ref(null)
-const uploading = ref(false)
-const isDragging = ref(false)
-const dragDepth = ref(0)
-const errorMessage = ref('')
-const successMessage = ref('')
+const files            = ref([])
+const fileInput        = ref(null)
+const uploading        = ref(false)
+const isDragging       = ref(false)
+const dragDepth        = ref(0)
+const errorMessage     = ref('')
+const successMessage   = ref('')
 const selectedPresetId = ref(props.defaultPresetId ? String(props.defaultPresetId) : '')
 
-const hasFile = computed(() => file.value !== null)
+const MAX_FILES = 10
+const hasFiles  = computed(() => files.value.length > 0)
 
 const formatFileSize = (bytes) => {
   if (!Number.isFinite(bytes) || bytes <= 0) return '0 KB'
@@ -34,25 +35,45 @@ const isPdfFile = (f) =>
   f && (f.type === 'application/pdf' || /\.pdf$/i.test(f.name))
 
 const clearMessages = () => {
-  errorMessage.value = ''
+  errorMessage.value  = ''
   successMessage.value = ''
 }
 
-const setSelectedFile = (f) => {
+function addFiles(fileList) {
   clearMessages()
+  const incoming = Array.from(fileList)
+  const pdfs     = incoming.filter(isPdfFile)
+  const messages = []
 
-  if (!f) {
-    file.value = null
-    return
+  if (pdfs.length < incoming.length) {
+    messages.push(`${incoming.length - pdfs.length} non-PDF file(s) rejected.`)
   }
 
-  if (!isPdfFile(f)) {
-    file.value = null
-    errorMessage.value = 'Please choose a PDF file.'
-    return
+  const existing = new Set(files.value.map(f => f.name))
+  const unique   = pdfs.filter(f => !existing.has(f.name))
+  const skipped  = pdfs.length - unique.length
+
+  if (skipped > 0) {
+    messages.push(`${skipped} file(s) skipped (duplicate name).`)
   }
 
-  file.value = f
+  if (messages.length) {
+    errorMessage.value = messages.join(' ')
+  }
+
+  const combined = [...files.value, ...unique]
+  if (combined.length > MAX_FILES) {
+    errorMessage.value = (errorMessage.value ? errorMessage.value + ' ' : '')
+      + `Max ${MAX_FILES} files per batch.`
+    files.value = combined.slice(0, MAX_FILES)
+  } else {
+    files.value = combined
+  }
+}
+
+function removeFile(index) {
+  files.value.splice(index, 1)
+  clearMessages()
 }
 
 const openFilePicker = () => {
@@ -60,7 +81,7 @@ const openFilePicker = () => {
 }
 
 const handleFileChange = (e) => {
-  setSelectedFile(e.target.files?.[0] ?? null)
+  addFiles(e.target.files ?? [])
   e.target.value = ''
 }
 
@@ -84,13 +105,13 @@ const handleDragLeave = () => {
 
 const handleDrop = (e) => {
   if (uploading.value) return
-  dragDepth.value = 0
+  dragDepth.value  = 0
   isDragging.value = false
-  setSelectedFile(e.dataTransfer?.files?.[0] ?? null)
+  addFiles(e.dataTransfer?.files ?? [])
 }
 
 const resetDropState = () => {
-  dragDepth.value = 0
+  dragDepth.value  = 0
   isDragging.value = false
 }
 
@@ -119,8 +140,8 @@ const startDownload = (blob, filename) => {
 }
 
 const handleUpload = async () => {
-  if (!file.value || uploading.value) {
-    errorMessage.value = 'Please choose a PDF file first.'
+  if (!files.value.length || uploading.value) {
+    errorMessage.value = 'Please add at least one PDF file.'
     return
   }
 
@@ -128,9 +149,8 @@ const handleUpload = async () => {
   uploading.value = true
 
   const formData = new FormData()
-  formData.append('file', file.value)
+  files.value.forEach(f => formData.append('files[]', f))
 
-  // ✅ PRESET ADDED HERE
   if (selectedPresetId.value) {
     formData.append('preset_id', selectedPresetId.value)
   }
@@ -194,11 +214,11 @@ const handleUpload = async () => {
           </select>
         </div>
 
-        <input ref="fileInput" type="file" accept="application/pdf" class="hidden" @change="handleFileChange">
+        <input ref="fileInput" type="file" accept="application/pdf" multiple class="hidden" @change="handleFileChange">
 
         <!-- Drag zone -->
         <div
-          class="border-2 border-dashed rounded-xl p-10 text-center cursor-pointer transition-colors"
+          class="border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-colors"
           :class="isDragging
             ? 'border-emerald-500 bg-emerald-50'
             : 'border-stone-300 hover:border-stone-400 hover:bg-stone-50'"
@@ -214,28 +234,46 @@ const handleUpload = async () => {
               d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
           </svg>
 
-          <template v-if="hasFile">
-            <p class="text-sm font-semibold text-stone-800 truncate max-w-xs mx-auto">{{ file.name }}</p>
-            <p class="text-xs text-stone-400 mt-1">{{ formatFileSize(file.size) }} · PDF</p>
-            <button class="mt-3 text-xs text-stone-400 hover:text-red-500 transition-colors" @click.stop="setSelectedFile(null)">
-              Remove file
-            </button>
+          <!-- Files selected -->
+          <template v-if="hasFiles">
+            <p class="text-sm font-semibold text-stone-800 mb-2">
+              {{ files.length }} file{{ files.length !== 1 ? 's' : '' }} selected
+            </p>
+            <ul class="max-h-28 overflow-y-auto space-y-1 mb-2 text-left">
+              <li v-for="(f, i) in files" :key="f.name"
+                class="flex items-center gap-2 text-xs text-stone-600">
+                <span class="flex-1 truncate">{{ f.name }}</span>
+                <span class="shrink-0 text-stone-400">{{ formatFileSize(f.size) }}</span>
+                <button
+                  class="shrink-0 text-stone-400 hover:text-red-500 transition-colors"
+                  @click.stop="removeFile(i)">✕</button>
+              </li>
+            </ul>
+            <div class="flex items-center justify-center gap-3 text-xs">
+              <span v-if="files.length < MAX_FILES" class="text-stone-400">Click to add more</span>
+              <button
+                class="text-stone-400 hover:text-red-500 transition-colors"
+                @click.stop="files = []; clearMessages()">
+                Clear all
+              </button>
+            </div>
           </template>
 
+          <!-- Idle -->
           <template v-else>
-            <p class="text-sm font-medium text-stone-600">Drop PDF here or click to browse</p>
-            <p class="text-xs text-stone-400 mt-1">PDF only · max 20 MB</p>
+            <p class="text-sm font-medium text-stone-600">Drop PDFs here or click to browse</p>
+            <p class="text-xs text-stone-400 mt-1">PDF only · max 20 MB · up to 10 files</p>
           </template>
         </div>
 
         <!-- Messages -->
-        <p v-if="errorMessage" class="text-sm text-red-600">{{ errorMessage }}</p>
+        <p v-if="errorMessage"   class="text-sm text-red-600">{{ errorMessage }}</p>
         <p v-if="successMessage" class="text-sm text-emerald-600">{{ successMessage }}</p>
 
         <!-- Generate button -->
         <button
           class="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-2.5 rounded-lg text-sm font-semibold transition-colors disabled:bg-stone-300 disabled:cursor-not-allowed"
-          :disabled="uploading"
+          :disabled="uploading || !hasFiles"
           @click="handleUpload">
           {{ uploading ? 'Processing…' : 'Generate ZIP' }}
         </button>
