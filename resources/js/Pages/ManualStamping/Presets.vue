@@ -14,7 +14,7 @@ function newStamp(overrides = {}) {
 }
 
 function newEsign() {
-  return { enabled: false, x: 10, y: 270, width: 30, height: 10, page_rule: 'last', page_number: '' }
+  return reactive({ x: 10, y: 270, width: 30, height: 10, page_rule: 'last', page_number: '', image: null })
 }
 
 function hydrateStamps(raw, defaultLabel = 'MASTER COPY') {
@@ -27,13 +27,17 @@ function hydrateStamps(raw, defaultLabel = 'MASTER COPY') {
   }))
 }
 
-function hydrateEsign(raw) {
-  if (!raw) return newEsign()
-  return {
-    enabled: !!raw.enabled, x: raw.x ?? 10, y: raw.y ?? 270,
-    width: raw.width ?? 30, height: raw.height ?? 10,
-    page_rule: raw.page_rule ?? 'last', page_number: raw.page_number ?? '',
-  }
+function hydrateEsigns(raw) {
+  if (!Array.isArray(raw) || raw.length === 0) return []
+  return raw.map(e => reactive({
+    x:           e.x           ?? 10,
+    y:           e.y           ?? 270,
+    width:       e.width       ?? 30,
+    height:      e.height      ?? 10,
+    page_rule:   e.page_rule   ?? 'last',
+    page_number: e.page_number ?? '',
+    image:       e.image       ?? null,
+  }))
 }
 
 // ─── Props ────────────────────────────────────────────────────────────────────
@@ -94,13 +98,14 @@ const THUMB_S = THUMB_W / 210
 function thumbPx(mm) { return (parseFloat(mm) || 0) * THUMB_S }
 
 // ─── CREATE form ──────────────────────────────────────────────────────────────
-const createMeta         = reactive({ name: '', description: '', is_active: true })
-const createMasterStamps = ref([newStamp({ label: 'MASTER COPY' })])
-const createCtrlStamps   = ref([newStamp({ label: 'CONTROLLED COPY' })])
-const createUnctrlStamps = ref([newStamp({ label: 'UNCONTROLLED COPY' })])
-const createEsign        = reactive(newEsign())
-const createTab          = ref('master')
-const createActiveIdx    = ref(0)
+const createMeta          = reactive({ name: '', description: '', is_active: true })
+const createMasterStamps  = ref([newStamp({ label: 'MASTER COPY' })])
+const createCtrlStamps    = ref([newStamp({ label: 'CONTROLLED COPY' })])
+const createUnctrlStamps  = ref([newStamp({ label: 'UNCONTROLLED COPY' })])
+const createEsigns         = ref([newEsign()])
+const createEsignActiveIdx = ref(0)
+const createTab            = ref('master')
+const createActiveIdx      = ref(0)
 
 const createActiveStamps = computed(() => {
   if (createTab.value === 'master')     return createMasterStamps.value
@@ -110,10 +115,11 @@ const createActiveStamps = computed(() => {
 
 function resetCreate() {
   createMeta.name = ''; createMeta.description = ''; createMeta.is_active = true
-  createMasterStamps.value = [newStamp({ label: 'MASTER COPY' })]
-  createCtrlStamps.value   = [newStamp({ label: 'CONTROLLED COPY' })]
-  createUnctrlStamps.value = [newStamp({ label: 'UNCONTROLLED COPY' })]
-  Object.assign(createEsign, newEsign())
+  createMasterStamps.value  = [newStamp({ label: 'MASTER COPY' })]
+  createCtrlStamps.value    = [newStamp({ label: 'CONTROLLED COPY' })]
+  createUnctrlStamps.value  = [newStamp({ label: 'UNCONTROLLED COPY' })]
+  createEsigns.value        = [newEsign()]
+  createEsignActiveIdx.value = 0
   createTab.value = 'master'; createActiveIdx.value = 0
 }
 
@@ -129,20 +135,32 @@ function removeCreateStamp(i) {
 function onCreateStampDrag({ index, x, y }) {
   const s = createActiveStamps.value[index]; if (s) { s.x = x; s.y = y }
 }
-function onCreateEsignDrag({ x, y }) { createEsign.x = x; createEsign.y = y }
+
+function addCreateEsign() {
+  createEsigns.value.push(newEsign())
+  createEsignActiveIdx.value = createEsigns.value.length - 1
+}
+function removeCreateEsign(i) {
+  createEsigns.value.splice(i, 1)
+  createEsignActiveIdx.value = Math.max(0, Math.min(createEsignActiveIdx.value, createEsigns.value.length - 1))
+}
+function onCreateEsignDrag({ index, x, y }) {
+  const e = createEsigns.value[index]; if (e) { e.x = x; e.y = y }
+}
 
 function beginCreate() { resetCreate(); view.value = 'create' }
 function cancelCreate() { resetCreate(); view.value = 'dashboard' }
 
 // ─── EDIT form ────────────────────────────────────────────────────────────────
-const editingId        = ref(null)
-const editMeta         = reactive({ name: '', description: '', is_active: true })
-const editMasterStamps = ref([newStamp()])
-const editCtrlStamps   = ref([newStamp()])
-const editUnctrlStamps = ref([newStamp()])
-const editEsign        = reactive(newEsign())
-const editTab          = ref('master')
-const editActiveIdx    = ref(0)
+const editingId         = ref(null)
+const editMeta          = reactive({ name: '', description: '', is_active: true })
+const editMasterStamps  = ref([newStamp()])
+const editCtrlStamps    = ref([newStamp()])
+const editUnctrlStamps  = ref([newStamp()])
+const editEsigns         = ref([])
+const editEsignActiveIdx = ref(0)
+const editTab            = ref('master')
+const editActiveIdx      = ref(0)
 
 const editActiveStamps = computed(() => {
   if (editTab.value === 'master')     return editMasterStamps.value
@@ -151,14 +169,15 @@ const editActiveStamps = computed(() => {
 })
 
 function beginEdit(preset) {
-  editingId.value        = preset.id
-  editMeta.name          = preset.name        ?? ''
-  editMeta.description   = preset.description ?? ''
-  editMeta.is_active     = !!preset.is_active
-  editMasterStamps.value = hydrateStamps(preset.master_stamps,       'MASTER COPY')
-  editCtrlStamps.value   = hydrateStamps(preset.controlled_stamps,   'CONTROLLED COPY')
-  editUnctrlStamps.value = hydrateStamps(preset.uncontrolled_stamps, 'UNCONTROLLED COPY')
-  Object.assign(editEsign, hydrateEsign(preset.esign))
+  editingId.value         = preset.id
+  editMeta.name           = preset.name        ?? ''
+  editMeta.description    = preset.description ?? ''
+  editMeta.is_active      = !!preset.is_active
+  editMasterStamps.value  = hydrateStamps(preset.master_stamps,       'MASTER COPY')
+  editCtrlStamps.value    = hydrateStamps(preset.controlled_stamps,   'CONTROLLED COPY')
+  editUnctrlStamps.value  = hydrateStamps(preset.uncontrolled_stamps, 'UNCONTROLLED COPY')
+  editEsigns.value        = hydrateEsigns(preset.esign)
+  editEsignActiveIdx.value = 0
   editTab.value = 'master'; editActiveIdx.value = 0
   view.value = 'edit'
 }
@@ -167,7 +186,8 @@ function cancelEditAndReturn() {
   editingId.value = null
   editMasterStamps.value = [newStamp()]; editCtrlStamps.value = [newStamp()]; editUnctrlStamps.value = [newStamp()]
   Object.assign(editMeta, { name: '', description: '', is_active: true })
-  Object.assign(editEsign, newEsign())
+  editEsigns.value        = [newEsign()]
+  editEsignActiveIdx.value = 0
   view.value = 'dashboard'
 }
 
@@ -183,7 +203,18 @@ function removeEditStamp(i) {
 function onEditStampDrag({ index, x, y }) {
   const s = editActiveStamps.value[index]; if (s) { s.x = x; s.y = y }
 }
-function onEditEsignDrag({ x, y }) { editEsign.x = x; editEsign.y = y }
+
+function addEditEsign() {
+  editEsigns.value.push(newEsign())
+  editEsignActiveIdx.value = editEsigns.value.length - 1
+}
+function removeEditEsign(i) {
+  editEsigns.value.splice(i, 1)
+  editEsignActiveIdx.value = Math.max(0, Math.min(editEsignActiveIdx.value, editEsigns.value.length - 1))
+}
+function onEditEsignDrag({ index, x, y }) {
+  const e = editEsigns.value[index]; if (e) { e.x = x; e.y = y }
+}
 
 // ─── Payload ──────────────────────────────────────────────────────────────────
 function normalizeStamps(stamps) {
@@ -195,25 +226,34 @@ function normalizeStamps(stamps) {
   }))
 }
 
-function buildPayload(meta, masterStamps, ctrlStamps, unctrlStamps, esign) {
-  let normalizedEsign = null
-  if (esign.enabled) {
-    normalizedEsign = {
-      enabled: true,
-      x: esign.x !== '' ? Number(esign.x) : null,
-      y: esign.y !== '' ? Number(esign.y) : null,
-      width: esign.width !== '' ? Number(esign.width) : 30,
-      height: esign.height !== '' ? Number(esign.height) : 10,
-      page_rule: esign.page_rule || 'last',
-      page_number: esign.page_rule === 'specific' && esign.page_number !== '' ? Number(esign.page_number) : null,
-    }
-  }
+function normalizeEsigns(esigns) {
+  return esigns.map(e => ({
+    x:           Number(e.x),
+    y:           Number(e.y),
+    width:       Number(e.width),
+    height:      Number(e.height),
+    page_rule:   e.page_rule,
+    page_number: e.page_rule === 'specific' && e.page_number !== '' ? Number(e.page_number) : null,
+    image:       e.image ?? null,
+  }))
+}
+
+function onEsignImagePick(event, esign) {
+  const file = event.target.files?.[0]
+  if (!file) return
+  const reader = new FileReader()
+  reader.onload = (e) => { esign.image = e.target.result }
+  reader.readAsDataURL(file)
+  event.target.value = ''
+}
+
+function buildPayload(meta, masterStamps, ctrlStamps, unctrlStamps, esigns) {
   return {
     name: meta.name, description: meta.description || null, is_active: !!meta.is_active,
-    master_stamps: normalizeStamps(masterStamps),
-    controlled_stamps: normalizeStamps(ctrlStamps),
+    master_stamps:       normalizeStamps(masterStamps),
+    controlled_stamps:   normalizeStamps(ctrlStamps),
     uncontrolled_stamps: normalizeStamps(unctrlStamps),
-    esign: normalizedEsign,
+    esign:               normalizeEsigns(esigns),
   }
 }
 
@@ -225,7 +265,7 @@ function submitCreate() {
   saving.value = true
   router.post(
     '/manual-stamping/presets',
-    buildPayload(createMeta, createMasterStamps.value, createCtrlStamps.value, createUnctrlStamps.value, createEsign),
+    buildPayload(createMeta, createMasterStamps.value, createCtrlStamps.value, createUnctrlStamps.value, createEsigns.value),
     { preserveScroll: true, onFinish: () => { saving.value = false }, onSuccess: () => cancelCreate() }
   )
 }
@@ -235,7 +275,7 @@ function submitEdit() {
   saving.value = true
   router.put(
     `/manual-stamping/presets/${editingId.value}`,
-    buildPayload(editMeta, editMasterStamps.value, editCtrlStamps.value, editUnctrlStamps.value, editEsign),
+    buildPayload(editMeta, editMasterStamps.value, editCtrlStamps.value, editUnctrlStamps.value, editEsigns.value),
     { preserveScroll: true, onFinish: () => { saving.value = false }, onSuccess: () => cancelEditAndReturn() }
   )
 }
@@ -388,8 +428,10 @@ function submitEdit() {
                     <div class="flex items-center gap-2 text-[11px] pt-0.5">
                       <svg class="w-3 h-3 text-stone-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
                       <span class="text-stone-400">E-Sign:</span>
-                      <span :class="preset.esign?.enabled ? 'text-emerald-600 font-medium' : 'text-stone-400'">
-                        {{ preset.esign?.enabled ? `on · ${preset.esign.page_rule}` : 'off' }}
+                      <span :class="(preset.esign ?? []).length > 0 ? 'text-emerald-600 font-medium' : 'text-stone-400'">
+                        {{ (preset.esign ?? []).length > 0
+                          ? `${(preset.esign).length}× · ${(preset.esign)[0].page_rule}`
+                          : 'off' }}
                       </span>
                     </div>
                   </div>
@@ -412,14 +454,14 @@ function submitEdit() {
                           border: `1px solid ${stamp.type === 'red' ? '#dc2626' : '#1f2937'}`,
                           backgroundColor: stamp.type === 'red' ? 'rgba(220,38,38,0.12)' : 'rgba(31,41,55,0.08)',
                         }" />
-                      <!-- e-sign -->
-                      <div v-if="preset.esign?.enabled"
+                      <!-- e-sign boxes -->
+                      <div v-for="(esign, ei) in (preset.esign ?? [])" :key="'te' + ei"
                         class="absolute rounded-[1px]"
                         :style="{
-                          left:   thumbPx(preset.esign.x) + 'px',
-                          top:    thumbPx(preset.esign.y) + 'px',
-                          width:  Math.max(thumbPx(preset.esign.width),  4) + 'px',
-                          height: Math.max(thumbPx(preset.esign.height), 2) + 'px',
+                          left:   thumbPx(esign.x) + 'px',
+                          top:    thumbPx(esign.y) + 'px',
+                          width:  Math.max(thumbPx(esign.width),  4) + 'px',
+                          height: Math.max(thumbPx(esign.height), 2) + 'px',
                           border: '1px solid #1f2937',
                           backgroundColor: 'rgba(31,41,55,0.06)',
                         }" />
@@ -669,30 +711,79 @@ function submitEdit() {
               </div>
 
               <!-- E-Sign card -->
-              <div class="bg-white rounded-xl border border-stone-200 shadow-sm p-6">
-                <div class="flex items-center justify-between mb-4">
+              <div class="bg-white rounded-xl border border-stone-200 shadow-sm overflow-hidden">
+                <div class="flex items-center justify-between px-6 pt-5 pb-4">
                   <h3 class="text-sm font-semibold text-stone-900">E-Sign Settings</h3>
-                  <label class="flex items-center gap-2 cursor-pointer">
-                    <input v-model="createEsign.enabled" type="checkbox" class="h-4 w-4 rounded border-stone-300 text-emerald-600 focus:ring-emerald-500">
-                    <span class="text-sm text-stone-700">Enabled</span>
-                  </label>
+                  <button
+                    class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-emerald-700 border border-emerald-300 bg-emerald-50 rounded-lg hover:bg-emerald-100 transition-colors"
+                    @click="addCreateEsign">
+                    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>
+                    Add E-Sign
+                  </button>
                 </div>
-                <div v-if="createEsign.enabled" class="grid grid-cols-2 gap-3">
-                  <div><label class="block text-[11px] font-medium text-stone-500 mb-1">X (mm)</label><input v-model="createEsign.x" type="number" step="0.01" class="w-full border border-stone-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"></div>
-                  <div><label class="block text-[11px] font-medium text-stone-500 mb-1">Y (mm)</label><input v-model="createEsign.y" type="number" step="0.01" class="w-full border border-stone-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"></div>
-                  <div><label class="block text-[11px] font-medium text-stone-500 mb-1">Width (mm)</label><input v-model="createEsign.width" type="number" step="0.01" class="w-full border border-stone-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"></div>
-                  <div><label class="block text-[11px] font-medium text-stone-500 mb-1">Height (mm)</label><input v-model="createEsign.height" type="number" step="0.01" class="w-full border border-stone-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"></div>
-                  <div>
-                    <label class="block text-[11px] font-medium text-stone-500 mb-1">Page Rule</label>
-                    <select v-model="createEsign.page_rule" class="w-full border border-stone-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500">
-                      <option value="first">First page</option>
-                      <option value="last">Last page</option>
-                      <option value="specific">Specific page</option>
-                    </select>
-                  </div>
-                  <div v-if="createEsign.page_rule === 'specific'">
-                    <label class="block text-[11px] font-medium text-stone-500 mb-1">Page #</label>
-                    <input v-model="createEsign.page_number" type="number" min="1" class="w-full border border-stone-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500">
+
+                <div v-if="createEsigns.length === 0" class="px-6 pb-5 text-xs text-stone-400">
+                  No e-sign boxes. Click "Add E-Sign" to add one.
+                </div>
+
+                <div v-else class="px-6 pb-5 space-y-4">
+                  <div v-for="(esign, i) in createEsigns" :key="i"
+                    class="border rounded-xl p-4 cursor-pointer transition-colors"
+                    :class="createEsignActiveIdx === i ? 'border-emerald-400 bg-emerald-50/40' : 'border-stone-200 bg-stone-50/60'"
+                    @click="createEsignActiveIdx = i">
+                    <div class="flex items-center justify-between mb-3">
+                      <span class="text-[10px] font-bold uppercase tracking-widest text-stone-400">E-Sign {{ i + 1 }}</span>
+                      <button class="text-xs text-red-500 hover:text-red-700 transition-colors" @click.stop="removeCreateEsign(i)">Remove</button>
+                    </div>
+                    <div class="grid grid-cols-2 gap-3">
+                      <div>
+                        <label class="block text-[11px] font-medium text-stone-500 mb-1">X (mm)</label>
+                        <input v-model="esign.x" type="number" step="0.01" @click.stop class="w-full border border-stone-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                      </div>
+                      <div>
+                        <label class="block text-[11px] font-medium text-stone-500 mb-1">Y (mm)</label>
+                        <input v-model="esign.y" type="number" step="0.01" @click.stop class="w-full border border-stone-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                      </div>
+                      <div>
+                        <label class="block text-[11px] font-medium text-stone-500 mb-1">Width (mm)</label>
+                        <input v-model="esign.width" type="number" step="0.01" @click.stop class="w-full border border-stone-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                      </div>
+                      <div>
+                        <label class="block text-[11px] font-medium text-stone-500 mb-1">Height (mm)</label>
+                        <input v-model="esign.height" type="number" step="0.01" @click.stop class="w-full border border-stone-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                      </div>
+                      <div>
+                        <label class="block text-[11px] font-medium text-stone-500 mb-1">Page Rule</label>
+                        <select v-model="esign.page_rule" @click.stop class="w-full border border-stone-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                          <option value="first">First page</option>
+                          <option value="last">Last page</option>
+                          <option value="specific">Specific page</option>
+                        </select>
+                      </div>
+                      <div v-if="esign.page_rule === 'specific'">
+                        <label class="block text-[11px] font-medium text-stone-500 mb-1">Page #</label>
+                        <input v-model="esign.page_number" type="number" min="1" @click.stop class="w-full border border-stone-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                      </div>
+                      <div class="col-span-2 mt-1">
+                        <label class="block text-[11px] font-medium text-stone-500 mb-1">Signature Image</label>
+                        <div v-if="esign.image" class="mb-2 flex items-center gap-3">
+                          <img :src="esign.image" class="h-10 border border-stone-200 rounded object-contain bg-stone-50 px-1" alt="signature preview" />
+                          <button type="button" class="text-xs text-red-500 hover:text-red-700 transition-colors" @click.stop="esign.image = null">
+                            Remove image
+                          </button>
+                        </div>
+                        <label class="flex items-center gap-2 cursor-pointer w-fit" @click.stop>
+                          <input type="file" accept="image/png,image/jpeg,image/jpg" class="hidden"
+                            @change="(e) => onEsignImagePick(e, esign)" />
+                          <span class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-stone-700 border border-stone-300 rounded-lg hover:bg-stone-50 transition-colors">
+                            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
+                            </svg>
+                            {{ esign.image ? 'Replace image' : 'Upload signature' }}
+                          </span>
+                        </label>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -712,10 +803,12 @@ function submitEdit() {
                   <p class="text-[11px] text-stone-400 mb-4">Drag any box to reposition.</p>
                   <StampPreview
                     :stamps="createActiveStamps"
-                    :esign="createEsign"
+                    :esigns="createEsigns"
                     :active-index="createActiveIdx"
+                    :esign-active-index="createEsignActiveIdx"
                     background-image="/images/template_page1.png"
                     @update:active-index="createActiveIdx = $event"
+                    @update:esign-active-index="createEsignActiveIdx = $event"
                     @stamp-drag="onCreateStampDrag"
                     @esign-drag="onCreateEsignDrag"
                   />
@@ -880,30 +973,79 @@ function submitEdit() {
               </div>
 
               <!-- E-Sign (edit) -->
-              <div class="bg-white rounded-xl border border-stone-200 shadow-sm p-6">
-                <div class="flex items-center justify-between mb-4">
+              <div class="bg-white rounded-xl border border-stone-200 shadow-sm overflow-hidden">
+                <div class="flex items-center justify-between px-6 pt-5 pb-4">
                   <h3 class="text-sm font-semibold text-stone-900">E-Sign Settings</h3>
-                  <label class="flex items-center gap-2 cursor-pointer">
-                    <input v-model="editEsign.enabled" type="checkbox" class="h-4 w-4 rounded border-stone-300 text-emerald-600 focus:ring-emerald-500">
-                    <span class="text-sm text-stone-700">Enabled</span>
-                  </label>
+                  <button
+                    class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-emerald-700 border border-emerald-300 bg-emerald-50 rounded-lg hover:bg-emerald-100 transition-colors"
+                    @click="addEditEsign">
+                    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>
+                    Add E-Sign
+                  </button>
                 </div>
-                <div v-if="editEsign.enabled" class="grid grid-cols-2 gap-3">
-                  <div><label class="block text-[11px] font-medium text-stone-500 mb-1">X (mm)</label><input v-model="editEsign.x" type="number" step="0.01" class="w-full border border-stone-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"></div>
-                  <div><label class="block text-[11px] font-medium text-stone-500 mb-1">Y (mm)</label><input v-model="editEsign.y" type="number" step="0.01" class="w-full border border-stone-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"></div>
-                  <div><label class="block text-[11px] font-medium text-stone-500 mb-1">Width (mm)</label><input v-model="editEsign.width" type="number" step="0.01" class="w-full border border-stone-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"></div>
-                  <div><label class="block text-[11px] font-medium text-stone-500 mb-1">Height (mm)</label><input v-model="editEsign.height" type="number" step="0.01" class="w-full border border-stone-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"></div>
-                  <div>
-                    <label class="block text-[11px] font-medium text-stone-500 mb-1">Page Rule</label>
-                    <select v-model="editEsign.page_rule" class="w-full border border-stone-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500">
-                      <option value="first">First page</option>
-                      <option value="last">Last page</option>
-                      <option value="specific">Specific page</option>
-                    </select>
-                  </div>
-                  <div v-if="editEsign.page_rule === 'specific'">
-                    <label class="block text-[11px] font-medium text-stone-500 mb-1">Page #</label>
-                    <input v-model="editEsign.page_number" type="number" min="1" class="w-full border border-stone-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500">
+
+                <div v-if="editEsigns.length === 0" class="px-6 pb-5 text-xs text-stone-400">
+                  No e-sign boxes. Click "Add E-Sign" to add one.
+                </div>
+
+                <div v-else class="px-6 pb-5 space-y-4">
+                  <div v-for="(esign, i) in editEsigns" :key="i"
+                    class="border rounded-xl p-4 cursor-pointer transition-colors"
+                    :class="editEsignActiveIdx === i ? 'border-emerald-400 bg-emerald-50/40' : 'border-stone-200 bg-stone-50/60'"
+                    @click="editEsignActiveIdx = i">
+                    <div class="flex items-center justify-between mb-3">
+                      <span class="text-[10px] font-bold uppercase tracking-widest text-stone-400">E-Sign {{ i + 1 }}</span>
+                      <button class="text-xs text-red-500 hover:text-red-700 transition-colors" @click.stop="removeEditEsign(i)">Remove</button>
+                    </div>
+                    <div class="grid grid-cols-2 gap-3">
+                      <div>
+                        <label class="block text-[11px] font-medium text-stone-500 mb-1">X (mm)</label>
+                        <input v-model="esign.x" type="number" step="0.01" @click.stop class="w-full border border-stone-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                      </div>
+                      <div>
+                        <label class="block text-[11px] font-medium text-stone-500 mb-1">Y (mm)</label>
+                        <input v-model="esign.y" type="number" step="0.01" @click.stop class="w-full border border-stone-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                      </div>
+                      <div>
+                        <label class="block text-[11px] font-medium text-stone-500 mb-1">Width (mm)</label>
+                        <input v-model="esign.width" type="number" step="0.01" @click.stop class="w-full border border-stone-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                      </div>
+                      <div>
+                        <label class="block text-[11px] font-medium text-stone-500 mb-1">Height (mm)</label>
+                        <input v-model="esign.height" type="number" step="0.01" @click.stop class="w-full border border-stone-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                      </div>
+                      <div>
+                        <label class="block text-[11px] font-medium text-stone-500 mb-1">Page Rule</label>
+                        <select v-model="esign.page_rule" @click.stop class="w-full border border-stone-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                          <option value="first">First page</option>
+                          <option value="last">Last page</option>
+                          <option value="specific">Specific page</option>
+                        </select>
+                      </div>
+                      <div v-if="esign.page_rule === 'specific'">
+                        <label class="block text-[11px] font-medium text-stone-500 mb-1">Page #</label>
+                        <input v-model="esign.page_number" type="number" min="1" @click.stop class="w-full border border-stone-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                      </div>
+                      <div class="col-span-2 mt-1">
+                        <label class="block text-[11px] font-medium text-stone-500 mb-1">Signature Image</label>
+                        <div v-if="esign.image" class="mb-2 flex items-center gap-3">
+                          <img :src="esign.image" class="h-10 border border-stone-200 rounded object-contain bg-stone-50 px-1" alt="signature preview" />
+                          <button type="button" class="text-xs text-red-500 hover:text-red-700 transition-colors" @click.stop="esign.image = null">
+                            Remove image
+                          </button>
+                        </div>
+                        <label class="flex items-center gap-2 cursor-pointer w-fit" @click.stop>
+                          <input type="file" accept="image/png,image/jpeg,image/jpg" class="hidden"
+                            @change="(e) => onEsignImagePick(e, esign)" />
+                          <span class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-stone-700 border border-stone-300 rounded-lg hover:bg-stone-50 transition-colors">
+                            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
+                            </svg>
+                            {{ esign.image ? 'Replace image' : 'Upload signature' }}
+                          </span>
+                        </label>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -923,10 +1065,12 @@ function submitEdit() {
                   <p class="text-[11px] text-stone-400 mb-4">Drag any box to reposition.</p>
                   <StampPreview
                     :stamps="editActiveStamps"
-                    :esign="editEsign"
+                    :esigns="editEsigns"
                     :active-index="editActiveIdx"
+                    :esign-active-index="editEsignActiveIdx"
                     background-image="/images/template_page1.png"
                     @update:active-index="editActiveIdx = $event"
+                    @update:esign-active-index="editEsignActiveIdx = $event"
                     @stamp-drag="onEditStampDrag"
                     @esign-drag="onEditEsignDrag"
                   />

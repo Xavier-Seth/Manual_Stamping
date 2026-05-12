@@ -96,15 +96,15 @@ class StampPresetController extends Controller
             'uncontrolled_stamps.*.page_rule' => ['required', 'in:all,first,last,specific'],
             'uncontrolled_stamps.*.page_number' => ['nullable', 'integer', 'min:1'],
 
-            // ── esign ──────────────────────────────────────────────────────
-            'esign' => ['nullable', 'array'],
-            'esign.enabled' => ['nullable', 'boolean'],
-            'esign.x' => ['nullable', 'numeric', 'min:0'],
-            'esign.y' => ['nullable', 'numeric', 'min:0'],
-            'esign.width' => ['nullable', 'numeric', 'min:1'],
-            'esign.height' => ['nullable', 'numeric', 'min:1'],
-            'esign.page_rule' => ['nullable', 'in:first,last,specific'],
-            'esign.page_number' => ['nullable', 'integer', 'min:1'],
+            // ── esign (array of items — empty array means no e-signs) ─────
+            'esign'              => ['nullable', 'array'],
+            'esign.*.x'          => ['nullable', 'numeric', 'min:0'],
+            'esign.*.y'          => ['nullable', 'numeric', 'min:0'],
+            'esign.*.width'      => ['nullable', 'numeric', 'min:1'],
+            'esign.*.height'     => ['nullable', 'numeric', 'min:1'],
+            'esign.*.page_rule'  => ['nullable', 'in:first,last,specific'],
+            'esign.*.page_number'=> ['nullable', 'integer', 'min:1'],
+            'esign.*.image'      => ['nullable', 'string', 'max:500000', 'regex:/^data:image\/(png|jpeg|jpg);base64,/'],
         ]);
 
         // Normalise each stamp group
@@ -127,25 +127,21 @@ class StampPresetController extends Controller
             }, $data[$group]);
         }
 
-        // Normalise esign
-        $esign = $data['esign'] ?? null;
-
-        if (empty($esign['enabled'])) {
-            $data['esign'] = null;
-        } else {
-            if (($esign['page_rule'] ?? null) !== 'specific') {
-                $esign['page_number'] = null;
-            }
-            $data['esign'] = [
-                'enabled' => true,
-                'x' => isset($esign['x']) ? (float) $esign['x'] : null,
-                'y' => isset($esign['y']) ? (float) $esign['y'] : null,
-                'width' => isset($esign['width']) ? (float) $esign['width'] : 30.0,
-                'height' => isset($esign['height']) ? (float) $esign['height'] : 10.0,
-                'page_rule' => $esign['page_rule'] ?? 'last',
-                'page_number' => $esign['page_number'] ?? null,
+        // Normalise esign — always store [] (never null); presence in array = enabled
+        $rawEsigns = $data['esign'] ?? [];
+        $data['esign'] = array_values(array_map(function (array $e): array {
+            $pageRule = $e['page_rule'] ?? 'last';
+            return [
+                'x'           => isset($e['x'])      ? (float) $e['x']      : null,
+                'y'           => isset($e['y'])      ? (float) $e['y']      : null,
+                'width'       => isset($e['width'])  ? (float) $e['width']  : 30.0,
+                'height'      => isset($e['height']) ? (float) $e['height'] : 10.0,
+                'page_rule'   => $pageRule,
+                'page_number' => $pageRule === 'specific' && isset($e['page_number'])
+                                 ? (int) $e['page_number'] : null,
+                'image'       => isset($e['image']) && is_string($e['image']) ? $e['image'] : null,
             ];
-        }
+        }, is_array($rawEsigns) ? $rawEsigns : []));
 
         return $data;
     }

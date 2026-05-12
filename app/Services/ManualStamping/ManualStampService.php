@@ -24,7 +24,7 @@ class ManualStampService
                 }
 
                 $this->applyStampsForPage($pdf, $pageNo, $pageCount, $preset['stamps']);
-                $this->applyESignIfNeeded($pdf, $pageNo, $pageCount, $preset['esign']);
+                $this->applyESignsIfNeeded($pdf, $pageNo, $pageCount, $preset['esign']);
             }
         );
     }
@@ -48,7 +48,7 @@ class ManualStampService
                 }
 
                 $this->applyStampsForPage($pdf, $pageNo, $pageCount, $preset['stamps']);
-                $this->applyESignIfNeeded($pdf, $pageNo, $pageCount, $preset['esign']);
+                $this->applyESignsIfNeeded($pdf, $pageNo, $pageCount, $preset['esign']);
             }
         );
     }
@@ -71,7 +71,7 @@ class ManualStampService
                 }
 
                 $this->applyStampsForPage($pdf, $pageNo, $pageCount, $preset['stamps']);
-                $this->applyESignIfNeeded($pdf, $pageNo, $pageCount, $preset['esign']);
+                $this->applyESignsIfNeeded($pdf, $pageNo, $pageCount, $preset['esign']);
             }
         );
     }
@@ -191,29 +191,34 @@ class ManualStampService
             'page_number' => isset($s['page_number']) ? (int) $s['page_number'] : null,
         ], $rawStamps);
 
-        // Normalize esign object
-        $rawEsign = $preset['esign'] ?? null;
+        // Normalize esign — always an array; empty [] means no e-signs
+        $rawEsigns = $preset['esign'] ?? [];
 
-        if (is_string($rawEsign)) {
-            $rawEsign = json_decode($rawEsign, true);
+        if (is_string($rawEsigns)) {
+            $rawEsigns = json_decode($rawEsigns, true) ?? [];
         }
 
-        $esign = null;
-        if (!empty($rawEsign['enabled'])) {
-            $esign = [
-                'enabled' => true,
-                'x' => isset($rawEsign['x']) ? (float) $rawEsign['x'] : null,
-                'y' => isset($rawEsign['y']) ? (float) $rawEsign['y'] : null,
-                'width' => isset($rawEsign['width']) ? (float) $rawEsign['width'] : 30.0,
-                'height' => isset($rawEsign['height']) ? (float) $rawEsign['height'] : 10.0,
-                'page_rule' => (string) ($rawEsign['page_rule'] ?? 'last'),
-                'page_number' => isset($rawEsign['page_number']) ? (int) $rawEsign['page_number'] : null,
-            ];
+        // Belt-and-suspenders: handle old single-object format that bypassed migration
+        if (is_array($rawEsigns) && isset($rawEsigns['enabled'])) {
+            $rawEsigns = !empty($rawEsigns['enabled'])
+                ? [array_diff_key($rawEsigns, ['enabled' => 1])]
+                : [];
         }
+
+        $esigns = array_map(fn(array $e) => [
+            'x'           => isset($e['x'])      ? (float) $e['x']      : null,
+            'y'           => isset($e['y'])      ? (float) $e['y']      : null,
+            'width'       => isset($e['width'])  ? (float) $e['width']  : 30.0,
+            'height'      => isset($e['height']) ? (float) $e['height'] : 10.0,
+            'page_rule'   => (string) ($e['page_rule'] ?? 'last'),
+            'page_number' => ($e['page_rule'] ?? '') === 'specific'
+                             ? ($e['page_number'] ?? null) : null,
+            'image'       => isset($e['image']) && is_string($e['image']) ? $e['image'] : null,
+        ], is_array($rawEsigns) ? $rawEsigns : []);
 
         return [
             'stamps' => $stamps,
-            'esign' => $esign,
+            'esign'  => $esigns,
         ];
     }
 
@@ -239,36 +244,59 @@ class ManualStampService
     // E-Sign overlay
     // -------------------------------------------------------------------------
 
-    private function applyESignIfNeeded(
+    private function applyESignsIfNeeded(
         TcpdfFpdi $pdf,
         int $pageNo,
         int $pageCount,
-        ?array $esign
+        array $esigns
     ): void {
-        if ($esign === null || !($esign['enabled'] ?? false)) {
-            return;
+        foreach ($esigns as $esign) {
+            if (
+                !$this->shouldApplyToPage(
+                    $pageNo,
+                    $pageCount,
+                    $esign['page_rule'] ?? 'last',
+                    $esign['page_number'] ?? null
+                )
+            ) {
+                continue;
+            }
+
+            $x = $esign['x'];
+            $y = $esign['y'];
+            $w = $esign['width']  ?? 30;
+            $h = $esign['height'] ?? 10;
+
+            if ($x === null || $y === null) {
+                continue;
+            }
+
+            $imageData = $esign['image'] ?? null;
+
+            if ($imageData && str_starts_with($imageData, 'data:image/')) {
+                preg_match('/^data:image\/([^;]+);base64,/', $imageData, $matches);
+                $mimeType = strtoupper($matches[1] ?? 'PNG');
+                if ($mimeType === 'JPG') {
+                    $mimeType = 'JPEG';
+                }
+
+                $base64 = preg_replace('/^data:[^;]+;base64,/', '', $imageData);
+                $binary = base64_decode($base64);
+
+                if ($binary === false) {
+                    $this->drawEsignPlaceholder($pdf, $x, $y, $w, $h);
+                } else {
+                    // '@' prefix = raw binary; $resize=true scales to fit $w x $h; 'C' = center-fit
+                    $pdf->Image('@' . $binary, $x, $y, $w, $h, $mimeType, '', '', true, 300, '', false, false, 0, 'C');
+                }
+            } else {
+                $this->drawEsignPlaceholder($pdf, $x, $y, $w, $h);
+            }
         }
+    }
 
-        if (
-            !$this->shouldApplyToPage(
-                $pageNo,
-                $pageCount,
-                $esign['page_rule'] ?? 'last',
-                $esign['page_number'] ?? null
-            )
-        ) {
-            return;
-        }
-
-        $x = $esign['x'];
-        $y = $esign['y'];
-        $w = $esign['width'] ?? 30;
-        $h = $esign['height'] ?? 10;
-
-        if ($x === null || $y === null) {
-            return;
-        }
-
+    private function drawEsignPlaceholder(TcpdfFpdi $pdf, float $x, float $y, float $w, float $h): void
+    {
         $pdf->SetDrawColor(31, 41, 55);
         $pdf->SetTextColor(31, 41, 55);
         $pdf->SetLineWidth(0.2);
@@ -276,10 +304,10 @@ class ManualStampService
 
         $pdf->SetFont('helvetica', 'I', 9);
 
-        $text = 'E-SIGN';
+        $text      = 'E-SIGN';
         $textWidth = $pdf->GetStringWidth($text);
-        $textX = $x + max(1.5, ($w - $textWidth) / 2);
-        $textY = $y + max(2.0, ($h / 2));
+        $textX     = $x + max(1.5, ($w - $textWidth) / 2);
+        $textY     = $y + max(2.0, ($h / 2));
 
         $pdf->Text($textX, $textY, $text);
     }

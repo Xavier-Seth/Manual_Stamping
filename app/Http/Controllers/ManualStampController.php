@@ -97,9 +97,9 @@ class ManualStampController extends Controller
             $stampService->stampUncontrolledCopy($inputPath, $uncontrolledPath, $uncontrolledPreset);
 
             $this->createZipArchive($zipPath, [
-                $masterPath => 'master_copy.pdf',
-                $controlledPath => 'controlled_copy.pdf',
-                $uncontrolledPath => 'uncontrolled_copy.pdf',
+                $masterPath       => "{$baseName}_MASTER.pdf",
+                $controlledPath   => "{$baseName}_CONTROLLED.pdf",
+                $uncontrolledPath => "{$baseName}_UNCONTROLLED.pdf",
             ]);
         } catch (Throwable $exception) {
             Storage::deleteDirectory($workingDirectory);

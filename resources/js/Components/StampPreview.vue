@@ -29,9 +29,13 @@ const props = defineProps({
     type: Array,
     default: () => [],
   },
-  esign: {
-    type: Object,
-    default: null,
+  esigns: {
+    type: Array,
+    default: () => [],
+  },
+  esignActiveIndex: {
+    type: Number,
+    default: -1,
   },
   activeIndex: {
     type: Number,
@@ -47,7 +51,7 @@ const props = defineProps({
   },
 })
 
-const emit = defineEmits(['update:activeIndex', 'stamp-drag', 'esign-drag'])
+const emit = defineEmits(['update:activeIndex', 'update:esignActiveIndex', 'stamp-drag', 'esign-drag'])
 
 // ── A4 preview constants ──────────────────────────────────────────────────────
 const PAGE_W_MM  = 210
@@ -93,9 +97,10 @@ function startStampDrag(event, stamp, idx) {
 }
 
 // ── Drag: esign ───────────────────────────────────────────────────────────────
-function startEsignDrag(event, esign) {
+function startEsignDrag(event, esign, idx) {
   event.preventDefault()
   event.stopPropagation()
+  emit('update:esignActiveIndex', idx)
 
   const startX = event.clientX
   const startY = event.clientY
@@ -106,6 +111,7 @@ function startEsignDrag(event, esign) {
     const w = parseFloat(esign.width)  || 0
     const h = parseFloat(esign.height) || 0
     emit('esign-drag', {
+      index: idx,
       x: +clamp(origX + (e.clientX - startX) / SCALE, 0, PAGE_W_MM - w).toFixed(2),
       y: +clamp(origY + (e.clientY - startY) / SCALE, 0, PAGE_H_MM - h).toFixed(2),
     })
@@ -180,9 +186,10 @@ function startEsignDrag(event, esign) {
         </span>
       </div>
 
-      <!-- E-Sign box -->
+      <!-- E-Sign boxes -->
       <div
-        v-if="esign && esign.enabled"
+        v-for="(esign, i) in esigns"
+        :key="'e' + i"
         class="absolute flex select-none items-center justify-center"
         :style="{
           left:            mmToPx(esign.x) + 'px',
@@ -191,10 +198,12 @@ function startEsignDrag(event, esign) {
           height:          mmToPx(esign.height) + 'px',
           border:          '2px solid #1f2937',
           backgroundColor: 'rgba(31,41,55,0.06)',
+          outline:         esignActiveIndex === i ? '2px solid #10b981' : 'none',
+          outlineOffset:   '2px',
           cursor:          'grab',
-          zIndex:          5,
+          zIndex:          esignActiveIndex === i ? 10 : 5,
         }"
-        @mousedown="startEsignDrag($event, esign)"
+        @mousedown="startEsignDrag($event, esign, i)"
       >
         <span class="pointer-events-none text-[6px] font-medium italic text-stone-700">
           E-SIGN
@@ -213,8 +222,14 @@ function startEsignDrag(event, esign) {
         y={{ Number(stamp.y).toFixed(1) }}
         — {{ Number(stamp.width).toFixed(1) }}×{{ Number(stamp.height).toFixed(1) }} mm
       </div>
-      <div v-if="esign && esign.enabled">
-        E-Sign: x={{ Number(esign.x || 0).toFixed(1) }}, y={{ Number(esign.y || 0).toFixed(1) }}
+      <div
+        v-for="(esign, i) in esigns"
+        :key="'ec' + i"
+        :class="esignActiveIndex === i ? 'font-semibold text-stone-700' : ''"
+      >
+        E{{ i + 1 }}: x={{ Number(esign.x || 0).toFixed(1) }},
+        y={{ Number(esign.y || 0).toFixed(1) }}
+        — {{ Number(esign.width || 0).toFixed(1) }}×{{ Number(esign.height || 0).toFixed(1) }} mm
       </div>
     </div>
 
