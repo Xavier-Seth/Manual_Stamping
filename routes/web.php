@@ -15,3 +15,9 @@ Route::post('/manual-stamping/presets', [StampPresetController::class, 'store'])
 
 Route::put('/manual-stamping/presets/{stampPreset}', [StampPresetController::class, 'update'])
     ->name('manual.stamping.presets.update');
+
+Route::patch('/manual-stamping/presets/{stampPreset}/set-default', [StampPresetController::class, 'setDefault'])
+    ->name('manual.stamping.presets.setDefault');
+
+Route::delete('/manual-stamping/presets/{stampPreset}', [StampPresetController::class, 'destroy'])
+    ->name('manual.stamping.presets.destroy');

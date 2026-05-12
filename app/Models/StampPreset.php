@@ -14,6 +14,7 @@ class StampPreset extends Model
         'uncontrolled_stamps',
         'esign',
         'is_active',
+        'is_default',
     ];
 
     protected $casts = [
@@ -22,5 +23,6 @@ class StampPreset extends Model
         'uncontrolled_stamps' => 'array',
         'esign' => 'array',
         'is_active' => 'boolean',
+        'is_default' => 'boolean',
     ];
 }

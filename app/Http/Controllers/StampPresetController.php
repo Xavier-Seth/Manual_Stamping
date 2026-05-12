@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\StampPreset;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -25,6 +26,7 @@ class StampPresetController extends Controller
                     'uncontrolled_stamps' => $preset->uncontrolled_stamps ?? [],
                     'esign' => $preset->esign,
                     'is_active' => $preset->is_active,
+                    'is_default' => $preset->is_default,
                     'created_at' => optional($preset->created_at)?->toDateTimeString(),
                     'updated_at' => optional($preset->updated_at)?->toDateTimeString(),
                 ]),
@@ -47,6 +49,27 @@ class StampPresetController extends Controller
         $stampPreset->update($data);
 
         return back()->with('success', 'Preset updated successfully.');
+    }
+
+    public function setDefault(StampPreset $stampPreset): RedirectResponse
+    {
+        if (!$stampPreset->is_active) {
+            return back()->withErrors(['preset' => 'Only active presets can be set as default.']);
+        }
+
+        DB::transaction(function () use ($stampPreset) {
+            StampPreset::query()->where('is_default', true)->update(['is_default' => false]);
+            $stampPreset->update(['is_default' => true]);
+        });
+
+        return back()->with('success', 'Default preset updated.');
+    }
+
+    public function destroy(StampPreset $stampPreset): RedirectResponse
+    {
+        $stampPreset->delete();
+
+        return back()->with('success', 'Preset deleted.');
     }
 
     // -------------------------------------------------------------------------

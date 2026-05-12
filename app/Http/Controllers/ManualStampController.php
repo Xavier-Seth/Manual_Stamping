@@ -22,6 +22,10 @@ class ManualStampController extends Controller
                 ->where('is_active', true)
                 ->orderBy('name')
                 ->get(['id', 'name', 'description']),
+            'defaultPresetId' => StampPreset::query()
+                ->where('is_default', true)
+                ->where('is_active', true)
+                ->value('id'),
         ]);
     }
 

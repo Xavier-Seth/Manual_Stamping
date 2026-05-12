@@ -7,6 +7,10 @@ const props = defineProps({
     type: Array,
     default: () => [],
   },
+  defaultPresetId: {
+    type: Number,
+    default: null,
+  },
 })
 
 const file = ref(null)
@@ -16,7 +20,7 @@ const isDragging = ref(false)
 const dragDepth = ref(0)
 const errorMessage = ref('')
 const successMessage = ref('')
-const selectedPresetId = ref('')
+const selectedPresetId = ref(props.defaultPresetId ? String(props.defaultPresetId) : '')
 
 const hasFile = computed(() => file.value !== null)
 
