@@ -208,6 +208,14 @@ Remove-StagedBootstrapCacheFiles
 
 Write-Host 'Laravel runtime staging complete.'
 
+# ─── Harden production .env ──────────────────────────────────────────────────
+# Force APP_DEBUG=false regardless of what the source .env contains.
+# Prevents stack traces and env values from being exposed in the webview.
+$envFilePath = Join-Path $stageRoot '.env'
+(Get-Content $envFilePath) -replace '^APP_DEBUG=.*', 'APP_DEBUG=false' |
+    Set-Content $envFilePath -Encoding utf8
+Write-Host 'Set APP_DEBUG=false in staged .env'
+
 # ─── Run migrations on bundled SQLite ────────────────────────────────────────
 # The bundled database.sqlite must have all migrations applied before tauri
 # build, because lib.rs copies it to app_local_data_dir on first launch.

@@ -18,8 +18,10 @@
         "label": "main",
         "create": false,
         "title": "QMS Manual Stamper",
-        "width": 800,
-        "height": 600
+        "width": 1280,
+        "height": 800,
+        "minWidth": 1024,
+        "minHeight": 720
       }
     ],
     "security": {

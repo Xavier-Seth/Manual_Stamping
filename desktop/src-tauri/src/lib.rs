@@ -40,11 +40,6 @@ struct LaravelSidecarState {
     child: Mutex<Option<Child>>,
 }
 
-#[tauri::command]
-fn greet(name: &str) -> String {
-    format!("Hello, {}! You've been greeted from Rust!", name)
-}
-
 fn build_php_path(php_runtime_dir: &Path) -> Result<OsString, Box<dyn std::error::Error>> {
     let existing_path = env::var_os("PATH").unwrap_or_default();
     let path_entries = std::iter::once(php_runtime_dir.to_path_buf())
@@ -352,7 +347,7 @@ pub fn run() {
             }
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![greet])
+        .invoke_handler(tauri::generate_handler![])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
 
