@@ -1,126 +1,283 @@
 <script setup>
-import { ref } from 'vue'
-import axios from 'axios'
+import { computed, ref } from 'vue'
+import { Head } from '@inertiajs/vue3'
 
-const file = ref(null)
-const uploading = ref(false)
-const error = ref('')
+const props = defineProps({
+  presets: {
+    type: Array,
+    default: () => [],
+  },
+  defaultPresetId: {
+    type: Number,
+    default: null,
+  },
+})
 
-const handleFileChange = (event) => {
-  file.value = event.target.files?.[0] ?? null
-  error.value = ''
+const files            = ref([])
+const fileInput        = ref(null)
+const uploading        = ref(false)
+const isDragging       = ref(false)
+const dragDepth        = ref(0)
+const errorMessage     = ref('')
+const successMessage   = ref('')
+const selectedPresetId = ref(props.defaultPresetId ? String(props.defaultPresetId) : '')
+
+const MAX_FILES = 10
+const hasFiles  = computed(() => files.value.length > 0)
+
+const formatFileSize = (bytes) => {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 KB'
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`
 }
 
-const getUploadErrorMessage = async (uploadError) => {
-  if (!uploadError.response) {
-    console.error(uploadError)
-    return 'Upload failed. Check the browser console and Laravel log for details.'
-  }
+const isPdfFile = (f) =>
+  f && (f.type === 'application/pdf' || /\.pdf$/i.test(f.name))
 
-  const responseData = uploadError.response.data
-
-  if (responseData instanceof Blob && responseData.type.includes('application/json')) {
-    try {
-      const payload = JSON.parse(await responseData.text())
-      const firstError = Object.values(payload.errors ?? {}).flat()[0]
-
-      return firstError ?? payload.message ?? 'Upload failed.'
-    } catch (parseError) {
-      console.error(parseError)
-    }
-  }
-
-  if (uploadError.response.status === 413) {
-    return 'The selected file is too large.'
-  }
-
-  if (uploadError.response.status === 419) {
-    return 'Your session expired. Refresh the page and try again.'
-  }
-
-  if (uploadError.response.status === 422) {
-    return 'The selected file is invalid.'
-  }
-
-  return `Upload failed with HTTP ${uploadError.response.status}.`
+const clearMessages = () => {
+  errorMessage.value  = ''
+  successMessage.value = ''
 }
+
+function addFiles(fileList) {
+  clearMessages()
+  const incoming = Array.from(fileList)
+  const pdfs     = incoming.filter(isPdfFile)
+  const messages = []
+
+  if (pdfs.length < incoming.length) {
+    messages.push(`${incoming.length - pdfs.length} non-PDF file(s) rejected.`)
+  }
+
+  const existing = new Set(files.value.map(f => f.name))
+  const unique   = pdfs.filter(f => !existing.has(f.name))
+  const skipped  = pdfs.length - unique.length
+
+  if (skipped > 0) {
+    messages.push(`${skipped} file(s) skipped (duplicate name).`)
+  }
+
+  if (messages.length) {
+    errorMessage.value = messages.join(' ')
+  }
+
+  const combined = [...files.value, ...unique]
+  if (combined.length > MAX_FILES) {
+    errorMessage.value = (errorMessage.value ? errorMessage.value + ' ' : '')
+      + `Max ${MAX_FILES} files per batch.`
+    files.value = combined.slice(0, MAX_FILES)
+  } else {
+    files.value = combined
+  }
+}
+
+function removeFile(index) {
+  files.value.splice(index, 1)
+  clearMessages()
+}
+
+const openFilePicker = () => {
+  if (!uploading.value) fileInput.value?.click()
+}
+
+const handleFileChange = (e) => {
+  addFiles(e.target.files ?? [])
+  e.target.value = ''
+}
+
+const handleDragEnter = () => {
+  if (uploading.value) return
+  dragDepth.value++
+  isDragging.value = true
+}
+
+const handleDragOver = (e) => {
+  if (uploading.value) return
+  e.dataTransfer.dropEffect = 'copy'
+  isDragging.value = true
+}
+
+const handleDragLeave = () => {
+  if (uploading.value) return
+  dragDepth.value = Math.max(0, dragDepth.value - 1)
+  if (dragDepth.value === 0) isDragging.value = false
+}
+
+const handleDrop = (e) => {
+  if (uploading.value) return
+  dragDepth.value  = 0
+  isDragging.value = false
+  addFiles(e.dataTransfer?.files ?? [])
+}
+
+const resetDropState = () => {
+  dragDepth.value  = 0
+  isDragging.value = false
+}
+
+const getCookie = (name) =>
+  document.cookie.split('; ').find((c) => c.startsWith(`${name}=`))
+    ?.substring(name.length + 1)
+
+const getCsrfToken = () =>
+  decodeURIComponent(getCookie('XSRF-TOKEN') ?? '') ||
+  document.querySelector('meta[name="csrf-token"]')?.getAttribute('content')
 
 const getDownloadFilename = (response) => {
-  const disposition = response.headers['content-disposition'] ?? ''
-  const match = disposition.match(/filename="?([^"]+)"?/)
+  const d = response.headers.get('content-disposition') ?? ''
+  return d.match(/filename="?([^"]+)"?/)?.[1] ?? 'stamped.zip'
+}
 
-  return match?.[1] ?? 'stamped_copies.zip'
+const startDownload = (blob, filename) => {
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
 }
 
 const handleUpload = async () => {
-  if (!file.value) {
-    error.value = 'Please select a PDF first.'
+  if (!files.value.length || uploading.value) {
+    errorMessage.value = 'Please add at least one PDF file.'
     return
   }
 
-  const formData = new FormData()
-  formData.append('file', file.value)
-
+  clearMessages()
   uploading.value = true
-  error.value = ''
+
+  const formData = new FormData()
+  files.value.forEach(f => formData.append('files[]', f))
+
+  if (selectedPresetId.value) {
+    formData.append('preset_id', selectedPresetId.value)
+  }
 
   try {
-    const response = await axios.post('/upload', formData, {
-      responseType: 'blob',
+    const res = await fetch('/upload', {
+      method: 'POST',
+      body: formData,
       headers: {
-        Accept: 'application/zip, application/json',
+        Accept: 'application/zip',
+        'X-XSRF-TOKEN': getCsrfToken(),
       },
+      credentials: 'same-origin',
     })
 
-    const url = window.URL.createObjectURL(new Blob([response.data]))
-    const link = document.createElement('a')
+    if (!res.ok) throw new Error('Upload failed')
 
-    link.href = url
-    link.download = getDownloadFilename(response)
-    document.body.appendChild(link)
-    link.click()
-    link.remove()
-    window.URL.revokeObjectURL(url)
-  } catch (uploadError) {
-    error.value = await getUploadErrorMessage(uploadError)
+    const blob = await res.blob()
+    startDownload(blob, getDownloadFilename(res))
+    successMessage.value = 'Download started.'
+  } catch (e) {
+    errorMessage.value = e.message
   } finally {
     uploading.value = false
+    resetDropState()
   }
 }
 </script>
 
 <template>
-  <div class="min-h-screen bg-slate-100">
-    <div class="mx-auto max-w-5xl px-4 py-10">
-      <div class="rounded-2xl bg-white p-8 shadow">
-        <h1 class="mb-2 text-3xl font-bold text-slate-800">
-          QMS Manual Stamping
-        </h1>
+  <Head title="QMS Manual Stamping" />
 
-        <p class="mb-6 text-slate-600">
-          Upload a manual file here.
-        </p>
+  <div class="min-h-screen bg-stone-100 flex items-center justify-center p-4">
+    <div class="w-full max-w-lg bg-white border border-stone-200 rounded-xl shadow-sm">
 
-        <form @submit.prevent="handleUpload" class="space-y-4">
-          <input
-            type="file"
-            accept="application/pdf"
-            @change="handleFileChange"
-            class="block w-full rounded-lg border border-slate-300 p-3"
-          />
+      <!-- Card header -->
+      <div class="px-6 pt-6 pb-4 flex items-start justify-between">
+        <div>
+          <p class="text-[10px] font-bold uppercase tracking-[0.2em] text-emerald-600 mb-0.5">Manual Stamping</p>
+          <h1 class="text-xl font-bold text-stone-950">QMS Document Stamper</h1>
+        </div>
+        <a href="/manual-stamping/presets"
+          class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-stone-700 border border-stone-300 rounded-lg hover:bg-stone-50 transition-colors mt-1">
+          Manage Presets
+          <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
+        </a>
+      </div>
 
-          <p v-if="error" class="text-sm font-medium text-red-600">
-            {{ error }}
-          </p>
+      <div class="border-t border-stone-100" />
 
-          <button
-            type="submit"
-            :disabled="uploading"
-            class="rounded-lg bg-blue-600 px-6 py-2 text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-400"
-          >
-            {{ uploading ? 'Uploading...' : 'Upload File' }}
-          </button>
-        </form>
+      <!-- Body -->
+      <div class="px-6 py-5 space-y-5">
+
+        <!-- Preset selector -->
+        <div>
+          <label class="block text-xs font-medium text-stone-600 mb-1.5">Stamp Preset</label>
+          <select v-model="selectedPresetId"
+            class="w-full border border-stone-300 rounded-lg px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-shadow">
+            <option value="">Default Layout</option>
+            <option v-for="p in props.presets" :key="p.id" :value="String(p.id)">{{ p.name }}</option>
+          </select>
+        </div>
+
+        <input ref="fileInput" type="file" accept="application/pdf" multiple class="hidden" @change="handleFileChange">
+
+        <!-- Drag zone -->
+        <div
+          class="border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-colors"
+          :class="isDragging
+            ? 'border-emerald-500 bg-emerald-50'
+            : 'border-stone-300 hover:border-stone-400 hover:bg-stone-50'"
+          @click="openFilePicker"
+          @drop.prevent="handleDrop"
+          @dragover.prevent="handleDragOver"
+          @dragenter.prevent="handleDragEnter"
+          @dragleave="handleDragLeave">
+
+          <svg class="w-10 h-10 mx-auto mb-3 transition-colors" :class="isDragging ? 'text-emerald-400' : 'text-stone-300'"
+            fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+              d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+          </svg>
+
+          <!-- Files selected -->
+          <template v-if="hasFiles">
+            <p class="text-sm font-semibold text-stone-800 mb-2">
+              {{ files.length }} file{{ files.length !== 1 ? 's' : '' }} selected
+            </p>
+            <ul class="max-h-28 overflow-y-auto space-y-1 mb-2 text-left">
+              <li v-for="(f, i) in files" :key="f.name"
+                class="flex items-center gap-2 text-xs text-stone-600">
+                <span class="flex-1 truncate">{{ f.name }}</span>
+                <span class="shrink-0 text-stone-400">{{ formatFileSize(f.size) }}</span>
+                <button
+                  class="shrink-0 text-stone-400 hover:text-red-500 transition-colors"
+                  @click.stop="removeFile(i)">✕</button>
+              </li>
+            </ul>
+            <div class="flex items-center justify-center gap-3 text-xs">
+              <span v-if="files.length < MAX_FILES" class="text-stone-400">Click to add more</span>
+              <button
+                class="text-stone-400 hover:text-red-500 transition-colors"
+                @click.stop="files = []; clearMessages()">
+                Clear all
+              </button>
+            </div>
+          </template>
+
+          <!-- Idle -->
+          <template v-else>
+            <p class="text-sm font-medium text-stone-600">Drop PDFs here or click to browse</p>
+            <p class="text-xs text-stone-400 mt-1">PDF only · max 20 MB · up to 10 files</p>
+          </template>
+        </div>
+
+        <!-- Messages -->
+        <p v-if="errorMessage"   class="text-sm text-red-600">{{ errorMessage }}</p>
+        <p v-if="successMessage" class="text-sm text-emerald-600">{{ successMessage }}</p>
+
+        <!-- Generate button -->
+        <button
+          class="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-2.5 rounded-lg text-sm font-semibold transition-colors disabled:bg-stone-300 disabled:cursor-not-allowed"
+          :disabled="uploading || !hasFiles"
+          @click="handleUpload">
+          {{ uploading ? 'Processing…' : 'Generate ZIP' }}
+        </button>
+
       </div>
     </div>
   </div>
