@@ -207,3 +207,27 @@ Write-Host 'Removing staged config and route caches'
 Remove-StagedBootstrapCacheFiles
 
 Write-Host 'Laravel runtime staging complete.'
+
+# ─── Run migrations on bundled SQLite ────────────────────────────────────────
+# The bundled database.sqlite must have all migrations applied before tauri
+# build, because lib.rs copies it to app_local_data_dir on first launch.
+# Migration files must be staged alongside the SQLite so artisan can find them.
+$phpExe = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\runtime\php\php.exe'))
+
+Write-Host ''
+Write-Host '=== Running migrations ==='
+
+Write-Host 'Copying database\migrations'
+Copy-RelativeDirectory -RelativePath 'database\migrations'
+
+Push-Location $stageRoot
+& $phpExe artisan migrate --force
+$migrationExitCode = $LASTEXITCODE
+Pop-Location
+
+if ($migrationExitCode -ne 0) {
+    Write-Host "Migration failed with exit code $migrationExitCode. Aborting." -ForegroundColor Red
+    exit 1
+}
+
+Write-Host '=== Staging complete ==='
