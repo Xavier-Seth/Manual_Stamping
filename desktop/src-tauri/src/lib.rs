@@ -135,6 +135,7 @@ fn prepare_packaged_laravel_runtime<R: Runtime>(
     let framework_dir = runtime_paths.storage_dir.join("framework");
 
     fs::create_dir_all(runtime_paths.storage_dir.join("app"))?;
+    fs::create_dir_all(runtime_paths.storage_dir.join("app").join("public"))?;
     fs::create_dir_all(framework_dir.join("cache").join("data"))?;
     fs::create_dir_all(framework_dir.join("sessions"))?;
     fs::create_dir_all(framework_dir.join("views"))?;
@@ -275,6 +276,28 @@ fn spawn_packaged_laravel_server<R: Runtime>(
             runtime_paths.laravel_app_dir.display()
         );
         return Ok(());
+    }
+
+    let migrate_output = Command::new(&runtime_paths.php_exe)
+        .current_dir(&runtime_paths.laravel_app_dir)
+        .env("PHPRC", &runtime_paths.php_runtime_dir)
+        .env("PATH", &php_path)
+        .env("LARAVEL_STORAGE_PATH", &runtime_paths.storage_dir)
+        .env("DB_DATABASE", &runtime_paths.database_file)
+        .args(["artisan", "migrate", "--force"])
+        .output()?;
+
+    if !migrate_output.status.success() {
+        let stderr = String::from_utf8_lossy(&migrate_output.stderr);
+        app.dialog()
+            .message(format!(
+                "QMS Manual Stamper could not prepare its database. \
+                 Please reinstall the application.\n\nDetails: {stderr}"
+            ))
+            .title("Database setup failed")
+            .kind(MessageDialogKind::Error)
+            .blocking_show();
+        return Err(format!("artisan migrate --force failed:\n{stderr}").into());
     }
 
     let child = Command::new(&runtime_paths.php_exe)
