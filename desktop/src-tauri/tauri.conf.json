@@ -1,0 +1,46 @@
+{
+  "productName": "QMS Manual Stamper",
+  "version": "0.1.0",
+  "identifier": "com.xavier-seth.qms-manual-stamper",
+  "build": {
+    "beforeDevCommand": {
+      "script": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\desktop\\scripts\\ensure-laravel-dev-server.ps1 -Port 8000",
+      "cwd": "../..",
+      "wait": false
+    },
+    "devUrl": "http://127.0.0.1:8000",
+    "frontendDist": "../bootstrap"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "label": "main",
+        "create": false,
+        "title": "QMS Manual Stamper",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 1024,
+        "minHeight": 720
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; connect-src 'self' http://127.0.0.1:8000; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "resources": {
+      "../runtime/laravel-app/": "runtime/laravel-app/",
+      "../runtime/php/": "runtime/php/"
+    },
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  }
+}
