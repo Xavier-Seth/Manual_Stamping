@@ -2,6 +2,7 @@
 
 namespace App\Services\ManualStamping;
 
+use Illuminate\Support\Facades\Log;
 use setasign\Fpdi\TcpdfFpdi;
 
 class ManualStampService
@@ -274,20 +275,50 @@ class ManualStampService
             $imageData = $esign['image'] ?? null;
 
             if ($imageData && str_starts_with($imageData, 'data:image/')) {
-                preg_match('/^data:image\/([^;]+);base64,/', $imageData, $matches);
-                $mimeType = strtoupper($matches[1] ?? 'PNG');
-                if ($mimeType === 'JPG') {
-                    $mimeType = 'JPEG';
-                }
-
                 $base64 = preg_replace('/^data:[^;]+;base64,/', '', $imageData);
                 $binary = base64_decode($base64);
 
                 if ($binary === false) {
                     $this->drawEsignPlaceholder($pdf, $x, $y, $w, $h);
-                } else {
+                    continue;
+                }
+
+                // Detect type from actual binary bytes, not the data URI string.
+                // The data URI mime type can be wrong or absent; getimagesizefromstring
+                // reads magic bytes and is authoritative.
+                $info = @getimagesizefromstring($binary);
+                if ($info === false) {
+                    Log::warning('ManualStampService: could not determine image type from binary', [
+                        'binary_size' => strlen($binary),
+                    ]);
+                    $this->drawEsignPlaceholder($pdf, $x, $y, $w, $h);
+                    continue;
+                }
+
+                $mimeType = match ($info['mime']) {
+                    'image/jpeg' => 'JPEG',
+                    'image/png'  => 'PNG',
+                    'image/gif'  => 'GIF',
+                    'image/webp' => 'WEBP',
+                    default      => 'PNG',
+                };
+
+                try {
                     // '@' prefix = raw binary; $resize=true scales to fit $w x $h; 'C' = center-fit
-                    $pdf->Image('@' . $binary, $x, $y, $w, $h, $mimeType, '', '', true, 300, '', false, false, 0, 'C');
+                    $result = $pdf->Image('@' . $binary, $x, $y, $w, $h, $mimeType, '', '', true, 300, '', false, false, 0, 'C');
+                    if ($result === false) {
+                        Log::warning('ManualStampService: TCPDF Image() returned false', [
+                            'mime'        => $mimeType,
+                            'binary_size' => strlen($binary),
+                        ]);
+                        $this->drawEsignPlaceholder($pdf, $x, $y, $w, $h);
+                    }
+                } catch (\Exception $e) {
+                    Log::warning('ManualStampService: TCPDF Image() threw exception', [
+                        'message' => $e->getMessage(),
+                        'mime'    => $mimeType,
+                    ]);
+                    $this->drawEsignPlaceholder($pdf, $x, $y, $w, $h);
                 }
             } else {
                 $this->drawEsignPlaceholder($pdf, $x, $y, $w, $h);
