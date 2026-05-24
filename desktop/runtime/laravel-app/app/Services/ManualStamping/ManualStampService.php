@@ -2,6 +2,7 @@
 
 namespace App\Services\ManualStamping;
 
+use Illuminate\Support\Facades\Log;
 use setasign\Fpdi\TcpdfFpdi;
 
 class ManualStampService
@@ -287,6 +288,9 @@ class ManualStampService
                 // reads magic bytes and is authoritative.
                 $info = @getimagesizefromstring($binary);
                 if ($info === false) {
+                    Log::warning('ManualStampService: could not determine image type from binary', [
+                        'binary_size' => strlen($binary),
+                    ]);
                     $this->drawEsignPlaceholder($pdf, $x, $y, $w, $h);
                     continue;
                 }
@@ -301,8 +305,19 @@ class ManualStampService
 
                 try {
                     // '@' prefix = raw binary; $resize=true scales to fit $w x $h; 'C' = center-fit
-                    $pdf->Image('@' . $binary, $x, $y, $w, $h, $mimeType, '', '', true, 300, '', false, false, 0, 'C');
+                    $result = $pdf->Image('@' . $binary, $x, $y, $w, $h, $mimeType, '', '', true, 300, '', false, false, 0, 'C');
+                    if ($result === false) {
+                        Log::warning('ManualStampService: TCPDF Image() returned false', [
+                            'mime'        => $mimeType,
+                            'binary_size' => strlen($binary),
+                        ]);
+                        $this->drawEsignPlaceholder($pdf, $x, $y, $w, $h);
+                    }
                 } catch (\Exception $e) {
+                    Log::warning('ManualStampService: TCPDF Image() threw exception', [
+                        'message' => $e->getMessage(),
+                        'mime'    => $mimeType,
+                    ]);
                     $this->drawEsignPlaceholder($pdf, $x, $y, $w, $h);
                 }
             } else {
