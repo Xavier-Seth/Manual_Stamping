@@ -17,7 +17,7 @@ function Assert-SafePath {
     }
 }
 
-function Ensure-Directory {
+function Initialize-Directory {
     param(
         [Parameter(Mandatory = $true)]
         [string]$Path
@@ -43,7 +43,7 @@ function Copy-RelativeDirectory {
         throw "Required directory not found: $sourcePath"
     }
 
-    Ensure-Directory -Path (Split-Path -Parent $destinationPath)
+    Initialize-Directory -Path (Split-Path -Parent $destinationPath)
     Copy-Item -LiteralPath $sourcePath -Destination $destinationPath -Recurse -Force
 }
 
@@ -60,7 +60,7 @@ function Copy-RelativeFile {
         throw "Required file not found: $sourcePath"
     }
 
-    Ensure-Directory -Path (Split-Path -Parent $destinationPath)
+    Initialize-Directory -Path (Split-Path -Parent $destinationPath)
     Copy-Item -LiteralPath $sourcePath -Destination $destinationPath -Force
 }
 
@@ -68,7 +68,7 @@ function Copy-PublicDirectory {
     $sourcePath = Join-Path $repoRoot 'public'
     $destinationPath = Join-Path $stageRoot 'public'
 
-    Ensure-Directory -Path $destinationPath
+    Initialize-Directory -Path $destinationPath
 
     foreach ($item in Get-ChildItem -LiteralPath $sourcePath -Force) {
         $isPublicStorageLink = $item.Name -eq 'storage' -and
@@ -92,7 +92,7 @@ function Clear-StagedDirectoryContents {
 
     $targetPath = Join-Path $stageRoot $RelativePath
 
-    Ensure-Directory -Path $targetPath
+    Initialize-Directory -Path $targetPath
 
     foreach ($child in Get-ChildItem -LiteralPath $targetPath -Force) {
         if ($child.Name -eq '.gitignore') {
@@ -169,7 +169,7 @@ if (Test-Path -LiteralPath $stageRoot) {
     Remove-Item -LiteralPath $stageRoot -Recurse -Force
 }
 
-Ensure-Directory -Path $stageRoot
+Initialize-Directory -Path $stageRoot
 
 $directoriesToCopy = @(
     'app',
@@ -207,3 +207,35 @@ Write-Host 'Removing staged config and route caches'
 Remove-StagedBootstrapCacheFiles
 
 Write-Host 'Laravel runtime staging complete.'
+
+# ─── Harden production .env ──────────────────────────────────────────────────
+# Force APP_DEBUG=false regardless of what the source .env contains.
+# Prevents stack traces and env values from being exposed in the webview.
+$envFilePath = Join-Path $stageRoot '.env'
+(Get-Content $envFilePath) -replace '^APP_DEBUG=.*', 'APP_DEBUG=false' |
+    Set-Content $envFilePath -Encoding utf8
+Write-Host 'Set APP_DEBUG=false in staged .env'
+
+# ─── Run migrations on bundled SQLite ────────────────────────────────────────
+# The bundled database.sqlite must have all migrations applied before tauri
+# build, because lib.rs copies it to app_local_data_dir on first launch.
+# Migration files must be staged alongside the SQLite so artisan can find them.
+$phpExe = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\runtime\php\php.exe'))
+
+Write-Host ''
+Write-Host '=== Running migrations ==='
+
+Write-Host 'Copying database\migrations'
+Copy-RelativeDirectory -RelativePath 'database\migrations'
+
+Push-Location $stageRoot
+& $phpExe artisan migrate --force
+$migrationExitCode = $LASTEXITCODE
+Pop-Location
+
+if ($migrationExitCode -ne 0) {
+    Write-Host "Migration failed with exit code $migrationExitCode. Aborting." -ForegroundColor Red
+    exit 1
+}
+
+Write-Host '=== Staging complete ==='

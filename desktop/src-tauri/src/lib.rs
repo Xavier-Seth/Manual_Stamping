@@ -12,6 +12,7 @@ use std::{
 };
 
 use tauri::{utils::config::WindowConfig, Manager, RunEvent, Runtime, Url, WebviewUrl};
+use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
 
 const LARAVEL_URL: &str = "http://127.0.0.1:8000";
 const LARAVEL_PORT: u16 = 8000;
@@ -23,6 +24,7 @@ const EVENTS_CACHE_FILENAME: &str = "events.php";
 const PACKAGES_CACHE_FILENAME: &str = "packages.php";
 const ROUTES_CACHE_FILENAME: &str = "routes-v7.php";
 const SERVICES_CACHE_FILENAME: &str = "services.php";
+const MAX_NAVIGATE_RETRIES: u32 = 120; // 120 × 250ms = 30 seconds
 
 struct PackagedRuntimePaths {
     laravel_app_dir: PathBuf,
@@ -36,11 +38,6 @@ struct PackagedRuntimePaths {
 #[derive(Default)]
 struct LaravelSidecarState {
     child: Mutex<Option<Child>>,
-}
-
-#[tauri::command]
-fn greet(name: &str) -> String {
-    format!("Hello, {}! You've been greeted from Rust!", name)
 }
 
 fn build_php_path(php_runtime_dir: &Path) -> Result<OsString, Box<dyn std::error::Error>> {
@@ -138,6 +135,7 @@ fn prepare_packaged_laravel_runtime<R: Runtime>(
     let framework_dir = runtime_paths.storage_dir.join("framework");
 
     fs::create_dir_all(runtime_paths.storage_dir.join("app"))?;
+    fs::create_dir_all(runtime_paths.storage_dir.join("app").join("public"))?;
     fs::create_dir_all(framework_dir.join("cache").join("data"))?;
     fs::create_dir_all(framework_dir.join("sessions"))?;
     fs::create_dir_all(framework_dir.join("views"))?;
@@ -201,18 +199,41 @@ fn build_main_window<R: Runtime>(
 }
 
 fn navigate_main_window_when_ready<R: Runtime>(app_handle: tauri::AppHandle<R>, laravel_url: Url) {
-    thread::spawn(move || loop {
-        if laravel_is_ready() {
-            if let Some(window) = app_handle.get_webview_window("main") {
-                if let Err(error) = window.navigate(laravel_url.clone()) {
-                    eprintln!("Failed to navigate packaged app to Laravel: {error}");
+    thread::spawn(move || {
+        let mut retries = 0u32;
+
+        loop {
+            if laravel_is_ready() {
+                if let Some(window) = app_handle.get_webview_window("main") {
+                    if let Err(error) = window.navigate(laravel_url.clone()) {
+                        eprintln!("Failed to navigate packaged app to Laravel: {error}");
+                    }
                 }
+                return;
             }
 
-            return;
-        }
+            retries += 1;
+            if retries >= MAX_NAVIGATE_RETRIES {
+                eprintln!(
+                    "Laravel server did not become ready after {} retries ({:.0}s). Giving up.",
+                    MAX_NAVIGATE_RETRIES,
+                    MAX_NAVIGATE_RETRIES as f64 * SERVER_RETRY_INTERVAL.as_secs_f64()
+                );
+                app_handle
+                    .dialog()
+                    .message(
+                        "QMS Manual Stamper could not start the local server.\n\
+                         Please restart the application. If the problem persists,\n\
+                         check that port 8000 is not in use by another program.",
+                    )
+                    .title("Server failed to start")
+                    .kind(MessageDialogKind::Error)
+                    .blocking_show();
+                return;
+            }
 
-        thread::sleep(SERVER_RETRY_INTERVAL);
+            thread::sleep(SERVER_RETRY_INTERVAL);
+        }
     });
 }
 
@@ -255,6 +276,28 @@ fn spawn_packaged_laravel_server<R: Runtime>(
             runtime_paths.laravel_app_dir.display()
         );
         return Ok(());
+    }
+
+    let migrate_output = Command::new(&runtime_paths.php_exe)
+        .current_dir(&runtime_paths.laravel_app_dir)
+        .env("PHPRC", &runtime_paths.php_runtime_dir)
+        .env("PATH", &php_path)
+        .env("LARAVEL_STORAGE_PATH", &runtime_paths.storage_dir)
+        .env("DB_DATABASE", &runtime_paths.database_file)
+        .args(["artisan", "migrate", "--force"])
+        .output()?;
+
+    if !migrate_output.status.success() {
+        let stderr = String::from_utf8_lossy(&migrate_output.stderr);
+        app.dialog()
+            .message(format!(
+                "QMS Manual Stamper could not prepare its database. \
+                 Please reinstall the application.\n\nDetails: {stderr}"
+            ))
+            .title("Database setup failed")
+            .kind(MessageDialogKind::Error)
+            .blocking_show();
+        return Err(format!("artisan migrate --force failed:\n{stderr}").into());
     }
 
     let child = Command::new(&runtime_paths.php_exe)
@@ -315,6 +358,7 @@ fn stop_packaged_laravel_server<R: Runtime>(app_handle: &tauri::AppHandle<R>) {
 pub fn run() {
     let app = tauri::Builder::default()
         .manage(LaravelSidecarState::default())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             if let Err(error) = spawn_packaged_laravel_server(app) {
@@ -326,7 +370,7 @@ pub fn run() {
             }
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![greet])
+        .invoke_handler(tauri::generate_handler![])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
 
