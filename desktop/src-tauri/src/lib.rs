@@ -137,6 +137,7 @@ fn prepare_packaged_laravel_runtime<R: Runtime>(
     fs::create_dir_all(runtime_paths.storage_dir.join("app"))?;
     fs::create_dir_all(runtime_paths.storage_dir.join("app").join("public"))?;
     fs::create_dir_all(framework_dir.join("cache").join("data"))?;
+    fs::create_dir_all(framework_dir.join("cache").join("tcpdf"))?;
     fs::create_dir_all(framework_dir.join("sessions"))?;
     fs::create_dir_all(framework_dir.join("views"))?;
     fs::create_dir_all(runtime_paths.storage_dir.join("logs"))?;
