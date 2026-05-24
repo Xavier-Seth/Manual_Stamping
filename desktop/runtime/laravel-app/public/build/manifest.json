@@ -1,6 +1,6 @@
 {
   "resources/js/Pages/ManualStamping/Index.vue": {
-    "file": "assets/Index-Bv2K_J84.js",
+    "file": "assets/Index-DuV4TVxx.js",
     "name": "Index",
     "src": "resources/js/Pages/ManualStamping/Index.vue",
     "isDynamicEntry": true,
@@ -8,16 +8,26 @@
       "resources/js/app.js"
     ]
   },
+  "resources/js/Pages/ManualStamping/Presets.vue": {
+    "file": "assets/Presets-Bl-ioQz2.js",
+    "name": "Presets",
+    "src": "resources/js/Pages/ManualStamping/Presets.vue",
+    "isDynamicEntry": true,
+    "imports": [
+      "resources/js/app.js"
+    ]
+  },
   "resources/js/app.js": {
-    "file": "assets/app-xi_FvDkc.js",
+    "file": "assets/app-DoeRYmoL.js",
     "name": "app",
     "src": "resources/js/app.js",
     "isEntry": true,
     "dynamicImports": [
-      "resources/js/Pages/ManualStamping/Index.vue"
+      "resources/js/Pages/ManualStamping/Index.vue",
+      "resources/js/Pages/ManualStamping/Presets.vue"
     ],
     "css": [
-      "assets/app-DaGhD78L.css"
+      "assets/app-2tkKkqGt.css"
     ]
   }
 }

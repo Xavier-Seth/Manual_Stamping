@@ -212,9 +212,16 @@ Write-Host 'Laravel runtime staging complete.'
 # Force APP_DEBUG=false regardless of what the source .env contains.
 # Prevents stack traces and env values from being exposed in the webview.
 $envFilePath = Join-Path $stageRoot '.env'
-(Get-Content $envFilePath) -replace '^APP_DEBUG=.*', 'APP_DEBUG=false' |
+(Get-Content $envFilePath) `
+    -replace '^APP_DEBUG=.*',      'APP_DEBUG=false' `
+    -replace '^DB_CONNECTION=.*',  'DB_CONNECTION=sqlite' `
+    -replace '^DB_HOST=.*',        '#DB_HOST=' `
+    -replace '^DB_PORT=.*',        '#DB_PORT=' `
+    -replace '^DB_DATABASE=.*',    '#DB_DATABASE=' `
+    -replace '^DB_USERNAME=.*',    '#DB_USERNAME=' `
+    -replace '^DB_PASSWORD=.*',    '#DB_PASSWORD=' |
     Set-Content $envFilePath -Encoding utf8
-Write-Host 'Set APP_DEBUG=false in staged .env'
+Write-Host 'Set APP_DEBUG=false and DB_CONNECTION=sqlite in staged .env'
 
 # ─── Run migrations on bundled SQLite ────────────────────────────────────────
 # The bundled database.sqlite must have all migrations applied before tauri
