@@ -303,24 +303,26 @@ class ManualStampService
                     default      => 'PNG',
                 };
 
-                // TCPDF cannot embed alpha-channel PNGs (color_type 4 or 6)
-                // without Imagick. Flatten onto white background via GD so the
-                // image always reaches TCPDF as a plain JPEG.
+                // Re-encode PNG through GD to strip problematic metadata/interlacing
+                // that causes TCPDF _parsepng() to route through ImagePngAlpha() and
+                // crash. Preserve alpha so the signature is not masked by a white fill.
                 if ($mimeType === 'PNG' && function_exists('imagecreatefromstring')) {
                     $gdImage = @imagecreatefromstring($binary);
                     if ($gdImage !== false) {
                         $imgW = imagesx($gdImage);
                         $imgH = imagesy($gdImage);
-                        $jpeg = imagecreatetruecolor($imgW, $imgH);
-                        $white = imagecolorallocate($jpeg, 255, 255, 255);
-                        imagefill($jpeg, 0, 0, $white);
-                        imagecopy($jpeg, $gdImage, 0, 0, 0, 0, $imgW, $imgH);
+                        $dest = imagecreatetruecolor($imgW, $imgH);
+                        imagealphablending($dest, false);
+                        imagesavealpha($dest, true);
+                        $transparent = imagecolorallocatealpha($dest, 0, 0, 0, 127);
+                        imagefill($dest, 0, 0, $transparent);
+                        imagecopy($dest, $gdImage, 0, 0, 0, 0, $imgW, $imgH);
                         ob_start();
-                        imagejpeg($jpeg, null, 95);
+                        imagepng($dest);
                         $binary = ob_get_clean();
                         imagedestroy($gdImage);
-                        imagedestroy($jpeg);
-                        $mimeType = 'JPEG';
+                        imagedestroy($dest);
+                        // $mimeType stays 'PNG' — re-encoded as clean GD PNG
                     }
                 }
 
@@ -339,7 +341,7 @@ class ManualStampService
                         'message' => $e->getMessage(),
                         'mime'    => $mimeType,
                     ]);
-                    $this->drawEsignPlaceholder($pdf, $x, $y, $w, $h);
+                    continue; // TCPDF internally destroys itself on throw — skip placeholder
                 }
             } else {
                 $this->drawEsignPlaceholder($pdf, $x, $y, $w, $h);
