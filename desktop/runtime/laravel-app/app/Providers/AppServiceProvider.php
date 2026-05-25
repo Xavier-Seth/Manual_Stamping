@@ -11,6 +11,13 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
+        // Must be defined before TCPDF loads tcpdf_config.php, which has a
+        // !defined() guard after our patch. Setting true makes Error() throw
+        // a catchable Exception instead of calling die().
+        if (!defined('K_TCPDF_THROW_EXCEPTION_ERROR')) {
+            define('K_TCPDF_THROW_EXCEPTION_ERROR', true);
+        }
+
         // Override TCPDF cache path to use writable storage dir.
         // K_PATH_CACHE defaults to sys_get_temp_dir() which may
         // not be accessible in the Tauri bundled PHP environment.

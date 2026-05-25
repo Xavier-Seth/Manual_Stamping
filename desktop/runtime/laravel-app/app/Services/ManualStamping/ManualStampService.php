@@ -303,6 +303,27 @@ class ManualStampService
                     default      => 'PNG',
                 };
 
+                // TCPDF cannot embed alpha-channel PNGs (color_type 4 or 6)
+                // without Imagick. Flatten onto white background via GD so the
+                // image always reaches TCPDF as a plain JPEG.
+                if ($mimeType === 'PNG' && function_exists('imagecreatefromstring')) {
+                    $gdImage = @imagecreatefromstring($binary);
+                    if ($gdImage !== false) {
+                        $imgW = imagesx($gdImage);
+                        $imgH = imagesy($gdImage);
+                        $jpeg = imagecreatetruecolor($imgW, $imgH);
+                        $white = imagecolorallocate($jpeg, 255, 255, 255);
+                        imagefill($jpeg, 0, 0, $white);
+                        imagecopy($jpeg, $gdImage, 0, 0, 0, 0, $imgW, $imgH);
+                        ob_start();
+                        imagejpeg($jpeg, null, 95);
+                        $binary = ob_get_clean();
+                        imagedestroy($gdImage);
+                        imagedestroy($jpeg);
+                        $mimeType = 'JPEG';
+                    }
+                }
+
                 try {
                     // '@' prefix = raw binary; $resize=true scales to fit $w x $h; 'C' = center-fit
                     $result = $pdf->Image('@' . $binary, $x, $y, $w, $h, $mimeType, '', '', true, 300, '', false, false, 0, 'C');

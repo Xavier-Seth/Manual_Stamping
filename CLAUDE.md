@@ -173,6 +173,10 @@ composer run test
 # or: php artisan test
 ```
 
+## Vendor Patches (must reapply after `composer update`)
+
+- `vendor/tecnickcom/tcpdf/config/tcpdf_config.php` line 226: the `define('K_TCPDF_THROW_EXCEPTION_ERROR', false)` call **must** be wrapped in `if (!defined('K_TCPDF_THROW_EXCEPTION_ERROR'))`. Without this guard `AppServiceProvider::register()` cannot override the value to `true` (PHP fatal: constant already defined).
+
 ## Important Rules
 
 1. **Never edit existing migrations** — add new ones only.
