@@ -303,26 +303,21 @@ class ManualStampService
                     default      => 'PNG',
                 };
 
-                // Re-encode PNG through GD to strip problematic metadata/interlacing
-                // that causes TCPDF _parsepng() to route through ImagePngAlpha() and
-                // crash. Preserve alpha so the signature is not masked by a white fill.
-                if ($mimeType === 'PNG' && function_exists('imagecreatefromstring')) {
-                    $gdImage = @imagecreatefromstring($binary);
+                if ($mimeType === 'PNG') {
+                    $gdImage = @\imagecreatefromstring($binary);
                     if ($gdImage !== false) {
-                        $imgW = imagesx($gdImage);
-                        $imgH = imagesy($gdImage);
-                        $dest = imagecreatetruecolor($imgW, $imgH);
-                        imagealphablending($dest, false);
-                        imagesavealpha($dest, true);
-                        $transparent = imagecolorallocatealpha($dest, 0, 0, 0, 127);
-                        imagefill($dest, 0, 0, $transparent);
-                        imagecopy($dest, $gdImage, 0, 0, 0, 0, $imgW, $imgH);
-                        ob_start();
-                        imagepng($dest);
-                        $binary = ob_get_clean();
-                        imagedestroy($gdImage);
-                        imagedestroy($dest);
-                        // $mimeType stays 'PNG' — re-encoded as clean GD PNG
+                        $imgW  = \imagesx($gdImage);
+                        $imgH  = \imagesy($gdImage);
+                        $jpeg  = \imagecreatetruecolor($imgW, $imgH);
+                        $white = \imagecolorallocate($jpeg, 255, 255, 255);
+                        \imagefill($jpeg, 0, 0, $white);
+                        \imagecopy($jpeg, $gdImage, 0, 0, 0, 0, $imgW, $imgH);
+                        \ob_start();
+                        \imagejpeg($jpeg, null, 95);
+                        $binary = \ob_get_clean();
+                        \imagedestroy($gdImage);
+                        \imagedestroy($jpeg);
+                        $mimeType = 'JPEG';
                     }
                 }
 
@@ -341,7 +336,7 @@ class ManualStampService
                         'message' => $e->getMessage(),
                         'mime'    => $mimeType,
                     ]);
-                    continue; // TCPDF internally destroys itself on throw — skip placeholder
+                    continue;
                 }
             } else {
                 $this->drawEsignPlaceholder($pdf, $x, $y, $w, $h);
